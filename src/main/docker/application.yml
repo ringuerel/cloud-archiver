@@ -1,0 +1,20 @@
+application:
+  cloudProvider:
+    type: NO_PROVIDER
+  ignorepatterns:
+    - ^\..+
+    - ^_.*
+server:
+  port: 8080
+  servlet:
+    context-path: /cloud-archiver
+logging:
+  level:
+    root: INFO
+    com:
+      homelab:
+        ringue: INFO
+backup:
+  schedule:
+    cron: 0 11 * * * * #Mondays 11AM
+# End of default configs

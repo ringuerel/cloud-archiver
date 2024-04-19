@@ -1,0 +1,44 @@
+application:
+  cloudProviderConfig:
+    type: GCP
+    projectId: gcp-project-id-name
+    bucketName: gcp-bucket-name
+    credentialsFilePath: /path/to/gcp/creds/file
+  scanFolders:
+    -
+      scanFolder: /path/to/sync
+      cleanRemovedFromCloud: true # false if you don't want to delete from GCP what you deleted locally (Prevents GCP early delete fees)
+      ignoreHiddenFiles: true # false if you want to sync hidden files to GCP
+      collectionFetchSize: 2000 # Items to be retrieved from MongoDB at once during deletion checks (The higher the number the less "hits" to Mongo, more memory up front tho)
+      standardDeleteDaysLimit: 30 # Days that you estimate to have your bucket items being on a Standard storage class and therefore delete is free, basically if a file is deleted up to 30 days after being uploaded it'll be deleted from GCP as well
+      archiveDeleteDaysHold: 365 # Days afte getting a file getting to Archive storage class to be able to perform free delete (so we'll do standardDelete + archiveDeleteDaysHold), basically if a file is deleted before 365 + 30 days it'll not be deleted from GCP until it reaches the 395 days age since upload
+      ignorepatterns: # Ignores files/folder with the different patterns
+        - ^\..+
+        - ^_.*
+    -
+      scanFolder: /path/to/sync # yes, you can add multiple folders with slightly different behavior ..but all goes to the same bucket so watch out with the delete times
+      cleanRemovedFromCloud: true # false if you don't want to delete from GCP what you deleted locally (Prevents GCP early delete fees)
+      ignoreHiddenFiles: true # false if you want to sync hidden files to GCP
+      collectionFetchSize: 2000 # Items to be retrieved from MongoDB at once during deletion checks (The higher the number the less "hits" to Mongo, more memory up front tho)
+      standardDeleteDaysLimit: 30 # Days that you estimate to have your bucket items being on a Standard storage class and therefore delete is free, basically if a file is deleted up to 30 days after being uploaded it'll be deleted from GCP as well
+      archiveDeleteDaysHold: 365 # Days afte getting a file getting to Archive storage class to be able to perform free delete (so we'll do standardDelete + archiveDeleteDaysHold), basically if a file is deleted before 365 + 30 days it'll not be deleted from GCP until it reaches the 395 days age since upload
+      ignorepatterns: # Ignores files/folder with the different patterns
+server:
+  port: 8080
+  servlet:
+    context-path: /cloud-archiver
+logging:
+  level:
+    root: INFO
+    com:
+      homelab:
+        ringue: INFO # DEBUG prints more things TRACE is too noisy
+backup:
+  schedule:
+    cron: "0 0 3/12 * * *" #every day at 3am and 3pm
+# End of default configs
+spring:
+  data:
+      mongodb:
+        database: mongodbname
+        uri: mongodb+srv://mongodb_user:mongodb_password@mongohost/?retryWrites=true&w=majority&appName=mongoappname
