@@ -149,25 +149,30 @@ public class FileCatalogServiceImpl implements FileCatalogService{
         putCollectionIdsInMemoryCache(locationConfig,PageRequest.ofSize(locationConfig.getCollectionFetchSize()),collectionIdsInMemoryCache);
         log.trace("InMemory collection size:{}",collectionIdsInMemoryCache.size());
         try (Stream<Path> filesList = Files.walk(folder).parallel()) {
-            locationConfig.initScanConfigLocation();
-            filesList
-            .map(fileCatalogItemMapper::mapFromPath)
-            .filter(Objects::nonNull)
-            .filter(fileCatalogItem -> this.applyFilteringRules(locationConfig,fileCatalogItem))
-            .filter(importingFileCatalogItem -> !importingFileCatalogItem.isDirectory())
-            .filter(importingFileCatalogItem -> {
-                boolean shouldPersist = !collectionIdsInMemoryCache.containsKey(importingFileCatalogItem.absolutePath());
-                if(!shouldPersist){
-                    collectionIdsInMemoryCache.remove(importingFileCatalogItem.absolutePath());
-                }
-                return shouldPersist;
-            })
-            .forEach(this::performCloudBackup);
+            processFileStreamForBackup(locationConfig, collectionIdsInMemoryCache, filesList);
         } catch (Exception e) {
             log.error("Failed processing {} for cloud backup",locationConfig, e);
             throw new CloudBackupException(locationConfig.getScanFolder(),e);
         }
         log.debug("Finished with backup process: {}",locationConfig.getScanFolder());
+    }
+
+    void processFileStreamForBackup(ScanLocationConfig locationConfig, Map<String, String> collectionIdsInMemoryCache,
+            Stream<Path> filesStream) {
+        locationConfig.initScanConfigLocation();
+        filesStream
+        .map(fileCatalogItemMapper::mapFromPath)
+        .filter(Objects::nonNull)
+        .filter(fileCatalogItem -> this.applyFilteringRules(locationConfig,fileCatalogItem))
+        .filter(importingFileCatalogItem -> !importingFileCatalogItem.isDirectory())
+        .filter(importingFileCatalogItem -> {
+            boolean shouldPersist = !collectionIdsInMemoryCache.containsKey(importingFileCatalogItem.absolutePath());
+            if(!shouldPersist){
+                collectionIdsInMemoryCache.remove(importingFileCatalogItem.absolutePath());
+            }
+            return shouldPersist;
+        })
+        .forEach(this::performCloudBackup);
     }
 
     private void putCollectionIdsInMemoryCache(ScanLocationConfig locationConfig, Pageable pageRequest, Map<String, String> catalogItemsKeys) {
@@ -205,7 +210,7 @@ public class FileCatalogServiceImpl implements FileCatalogService{
         return true;
     }
 
-    private void performCloudBackup(FileCatalogItem fileCatalogItem){
+    void performCloudBackup(FileCatalogItem fileCatalogItem){
         try {
             log.debug("Performing cloud backup for: {} with a size of: {}",fileCatalogItem.absolutePath(), fileCatalogItem.fileSize());
             cloudProviderFactory.getCloudProvider(applicationProperties.getCloudProviderConfig().getType()).upload(fileCatalogItem);

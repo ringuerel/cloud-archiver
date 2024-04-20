@@ -29,4 +29,3 @@ public class FileCatalogController {
         return fileCatalogService.findByFileNameContains(fileName);
     }
 }
-"lastUpdate":{"$date":{"$numberLong":"1713319740673"}
