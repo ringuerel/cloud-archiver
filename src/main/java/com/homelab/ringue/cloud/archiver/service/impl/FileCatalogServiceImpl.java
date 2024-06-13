@@ -1,5 +1,6 @@
 package com.homelab.ringue.cloud.archiver.service.impl;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -26,6 +27,11 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
+import com.google.common.hash.HashFunction;
+import com.google.common.hash.Hasher;
+import com.google.common.hash.Hashing;
+import com.google.common.io.BaseEncoding;
+import com.google.common.primitives.Ints;
 import com.homelab.ringue.cloud.archiver.cloudprovider.CloudProviderFactory;
 import com.homelab.ringue.cloud.archiver.config.ApplicationProperties;
 import com.homelab.ringue.cloud.archiver.config.ApplicationProperties.ScanLocationConfig;
@@ -213,14 +219,26 @@ public class FileCatalogServiceImpl implements FileCatalogService{
     void performCloudBackup(FileCatalogItem fileCatalogItem){
         try {
             log.debug("Performing cloud backup for: {} with a size of: {}",fileCatalogItem.absolutePath(), fileCatalogItem.fileSize());
+            fileCatalogItem = fileCatalogItemMapper.mapFromFileCatalogItemAddArchiveDateAndCheckSum(fileCatalogItem, getCheckSum(fileCatalogItem.absolutePath()));
             cloudProviderFactory.getCloudProvider(applicationProperties.getCloudProviderConfig().getType()).upload(fileCatalogItem);
-            fileCatalogItem = fileCatalogItemMapper.mapFromFileCatalogItemAddArchiveDate(fileCatalogItem);
             fileCatalogItemRepository.save(fileCatalogItem);
             catalogCount.incrementAndGet();
             catalogSize.addAndGet(fileCatalogItem.fileSize());
-        } catch (IOException e) {
+        } catch (Exception e) {
             log.error("Failed to upload {} to the cloud provider",fileCatalogItem.absolutePath(), e);
         }
+    }
+
+    private String getCheckSum(String absolutePath) throws IOException {
+        byte[] crc32CheckSum = new byte[0];
+        File file = Paths.get(absolutePath).toFile();
+        if(file != null) {
+            HashFunction crc32cHashFunc = Hashing.crc32c();
+            Hasher crc32cHasher = crc32cHashFunc.newHasher();
+            crc32cHasher.putBytes(Files.readAllBytes(Paths.get(absolutePath)));
+            crc32CheckSum = Ints.toByteArray(crc32cHasher.hash().asInt());
+        }
+        return BaseEncoding.base64().encode(crc32CheckSum);
     }
 
     private boolean isFileNotExistOnDisk(FileCatalogItem filecatalogitem) {

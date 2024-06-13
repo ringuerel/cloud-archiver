@@ -8,6 +8,6 @@ public interface FileCatalogItemMapper {
 
     public FileCatalogItem mapFromPath(Path path);
 
-    public FileCatalogItem mapFromFileCatalogItemAddArchiveDate(FileCatalogItem fileCatalogItem);
+    public FileCatalogItem mapFromFileCatalogItemAddArchiveDateAndCheckSum(FileCatalogItem fileCatalogItem, String checkSum);
 
 }
