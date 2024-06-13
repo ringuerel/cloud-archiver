@@ -19,4 +19,5 @@ public record FileCatalogItem(
     String parentFolder,
     boolean isDirectory,
     Long fileSize,
-    Date archiveDate) {}
+    Date archiveDate,
+    String checkSum) {}

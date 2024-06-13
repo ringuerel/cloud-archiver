@@ -21,7 +21,7 @@ public class FileCatalogItemMapperImpl implements FileCatalogItemMapper {
             String fileName = path.getFileName().toString();
             String fileExtension = getFileExtension(fileName);
             Long fileSize = Files.size(path);
-            return new FileCatalogItem(path.toAbsolutePath().toString(), fileName, fileExtension, path.toAbsolutePath().getParent().toString(), isDirectory, fileSize,null);
+            return new FileCatalogItem(path.toAbsolutePath().toString(), fileName, fileExtension, path.toAbsolutePath().getParent().toString(), isDirectory, fileSize,null,null);
         }catch(Exception e){
             log.error("Failed converting {} to a valid FileCatalogItem",path, e);
         }
@@ -38,8 +38,8 @@ public class FileCatalogItemMapperImpl implements FileCatalogItemMapper {
     }
 
     @Override
-    public FileCatalogItem mapFromFileCatalogItemAddArchiveDate(FileCatalogItem fileCatalogItem) {
-        return new FileCatalogItem(fileCatalogItem.absolutePath(), fileCatalogItem.fileName(), fileCatalogItem.fileExtension(), fileCatalogItem.parentFolder(), fileCatalogItem.isDirectory(), fileCatalogItem.fileSize(), new Date());
+    public FileCatalogItem mapFromFileCatalogItemAddArchiveDateAndCheckSum(FileCatalogItem fileCatalogItem, String checkSum) {
+        return new FileCatalogItem(fileCatalogItem.absolutePath(), fileCatalogItem.fileName(), fileCatalogItem.fileExtension(), fileCatalogItem.parentFolder(), fileCatalogItem.isDirectory(), fileCatalogItem.fileSize(), new Date(),checkSum);
     }
 
 }

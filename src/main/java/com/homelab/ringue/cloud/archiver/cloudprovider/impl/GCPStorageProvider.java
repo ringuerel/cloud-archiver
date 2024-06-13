@@ -49,7 +49,9 @@ public class GCPStorageProvider implements CloudProvider{
         //If no configured class it'll not be added tothe builder and uses bucket's default
         Optional.ofNullable(applicationProperties.getCloudProviderConfig().getStorageClass()).ifPresent(configuredStorageClass-> blobInfoBuilder.setStorageClass(StorageClass.valueOfStrict(configuredStorageClass)));
 
-        BlobInfo blobInfo = blobInfoBuilder.build();
+        BlobInfo blobInfo = blobInfoBuilder
+        .setCrc32c(fileCatalogItem.checkSum())
+        .build();
         // Optional: set a generation-match precondition to avoid potential race
         // conditions and data corruptions. The request returns a 412 error if the
         // preconditions are not met.
@@ -66,8 +68,8 @@ public class GCPStorageProvider implements CloudProvider{
             Storage.BlobWriteOption.generationMatch(
                 storage.get(gcpBucketName, gcpObjectName).getGeneration());
         }
-        Blob uploadedFileMetadata = storage.createFrom(blobInfo, Paths.get(fileCatalogItem.absolutePath()), precondition);
-        log.debug("UPLOADED==> {} to {} with {} provider MD5 {}",gcpObjectName,gcpBucketName,applicationProperties.getCloudProviderConfig().getType(),uploadedFileMetadata.getMd5());
+        Blob uploadedFileMetadata = storage.createFrom(blobInfo, Paths.get(fileCatalogItem.absolutePath()), precondition,Storage.BlobWriteOption.crc32cMatch());
+        log.debug("UPLOADED==> {} to {} with {} provider crc32c {} vs our crc32c {}",gcpObjectName,gcpBucketName,applicationProperties.getCloudProviderConfig().getType(),uploadedFileMetadata.getCrc32c(),fileCatalogItem.checkSum());
     }
 
     private String getGcpObjectName(FileCatalogItem fileCatalogItem) {
