@@ -27,7 +27,22 @@ I use this project to have a very cheap cloud backup to my [immich](https://immi
 
 # MongoDB
 
+Requires you to create 2 new collections:
+
+- *file_catalog*: Where the files and metadata will be indexed
+- *sync_summary*: Uploads/deletes summary grouped by day
+
+## Mongo Atlas
+
+MongoDB Atlas is a fully-managed cloud database that handles all the complexity of deploying, managing, and healing your deployments on the cloud service provider of your choice (AWS , Azure, and GCP). MongoDB Atlas is the best way to deploy, run, and scale MongoDB in the cloud.
 ![Mongo Atlas report example](./mongo-atlas/ReportExample.png)
+
+*NOTE*: If you want to use this with your owon mongo instance this should also work.
+
+### Configure Mongo Atlas
+
+- [Mongo Atlas](./mongo-atlas/MONGO-ATLAS-README.MD)
+
 
 ## Configure cloud provider
 
