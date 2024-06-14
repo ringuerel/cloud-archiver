@@ -23,6 +23,11 @@ import lombok.NoArgsConstructor;
 public class ApplicationProperties {
     private List<ScanLocationConfig> scanFolders;
     private CloudProviderConfig cloudProviderConfig;
+    private Integer crc32cBufferSize;
+
+    public int getCrc32cBufferSize(){
+        return Optional.ofNullable(crc32cBufferSize).orElse(1024);
+    }
 
     @Data
     public static class CloudProviderConfig{

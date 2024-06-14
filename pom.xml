@@ -10,7 +10,7 @@
 	</parent>
 	<groupId>com.homelab.ringue</groupId>
 	<artifactId>cloud-archiver</artifactId>
-	<version>0.9.4-SNAPSHOT</version>
+	<version>0.9.7-SNAPSHOT</version>
 	<name>cloud-archiver</name>
 	<description>Uploads configured folder content (media) to archive on a cloud provider</description>
 	<properties>

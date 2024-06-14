@@ -23,7 +23,7 @@ public class TimedTask {
 
     @PostConstruct
     public void initTask(){
-        log.info("Configured Provider: {}, Bucket: {}, StorageClass: {}",applicationProperties.getCloudProviderConfig().getType(),applicationProperties.getCloudProviderConfig().getBucketName(),applicationProperties.getCloudProviderConfig().getStorageClass());
+        log.info("Configured Provider: {}, Bucket: {}, StorageClass: {}, Crc32cBufferSize: {}",applicationProperties.getCloudProviderConfig().getType(),applicationProperties.getCloudProviderConfig().getBucketName(),applicationProperties.getCloudProviderConfig().getStorageClass(),applicationProperties.getCrc32cBufferSize());
         applicationProperties.getScanFolders().stream()
         .forEach(this::logFolderConfig);
     }

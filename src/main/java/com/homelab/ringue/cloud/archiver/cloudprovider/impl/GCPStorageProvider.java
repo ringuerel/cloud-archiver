@@ -50,7 +50,7 @@ public class GCPStorageProvider implements CloudProvider{
         Optional.ofNullable(applicationProperties.getCloudProviderConfig().getStorageClass()).ifPresent(configuredStorageClass-> blobInfoBuilder.setStorageClass(StorageClass.valueOfStrict(configuredStorageClass)));
 
         BlobInfo blobInfo = blobInfoBuilder
-        .setCrc32c(fileCatalogItem.checkSum())
+        .setCrc32c(fileCatalogItem.crc32c())
         .build();
         // Optional: set a generation-match precondition to avoid potential race
         // conditions and data corruptions. The request returns a 412 error if the
@@ -69,7 +69,7 @@ public class GCPStorageProvider implements CloudProvider{
                 storage.get(gcpBucketName, gcpObjectName).getGeneration());
         }
         Blob uploadedFileMetadata = storage.createFrom(blobInfo, Paths.get(fileCatalogItem.absolutePath()), precondition,Storage.BlobWriteOption.crc32cMatch());
-        log.debug("UPLOADED==> {} to {} with {} provider crc32c {} vs our crc32c {}",gcpObjectName,gcpBucketName,applicationProperties.getCloudProviderConfig().getType(),uploadedFileMetadata.getCrc32c(),fileCatalogItem.checkSum());
+        log.debug("UPLOADED==> {} to {} with {} provider crc32c {} vs our crc32c {}",gcpObjectName,gcpBucketName,applicationProperties.getCloudProviderConfig().getType(),uploadedFileMetadata.getCrc32c(),fileCatalogItem.crc32c());
     }
 
     private String getGcpObjectName(FileCatalogItem fileCatalogItem) {

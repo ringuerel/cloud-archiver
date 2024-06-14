@@ -1,8 +1,10 @@
 package com.homelab.ringue.cloud.archiver.service.impl;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
@@ -224,7 +226,7 @@ public class FileCatalogServiceImpl implements FileCatalogService{
     void performCloudBackup(FileCatalogItem fileCatalogItem){
         try {
             log.debug("Performing cloud backup for: {} with a size of: {}",fileCatalogItem.absolutePath(), fileCatalogItem.fileSize());
-            fileCatalogItem = fileCatalogItemMapper.mapFromFileCatalogItemAddArchiveDateAndCheckSum(fileCatalogItem, getCheckSum(fileCatalogItem.absolutePath()));
+            fileCatalogItem = fileCatalogItemMapper.mapFromFileCatalogItemAddArchiveDateAndCheckSum(fileCatalogItem, getCrC32C(fileCatalogItem.absolutePath()));
             cloudProviderFactory.getCloudProvider(applicationProperties.getCloudProviderConfig().getType()).upload(fileCatalogItem);
             fileCatalogItemRepository.save(fileCatalogItem);
             catalogCount.incrementAndGet();
@@ -234,16 +236,24 @@ public class FileCatalogServiceImpl implements FileCatalogService{
         }
     }
 
-    private String getCheckSum(String absolutePath) throws IOException {
+    private String getCrC32C(String absolutePath) throws IOException {
         byte[] crc32CheckSum = new byte[0];
         File file = Paths.get(absolutePath).toFile();
-        //com.google.common.io.Files.asByteSource(file).hash(Hashing.goodFastHash(32))
-        //explore the above to avoid OutOfMemmory issue
-        if(file != null) {
-            HashFunction crc32cHashFunc = Hashing.crc32c();
-            Hasher crc32cHasher = crc32cHashFunc.newHasher();
-            crc32cHasher.putBytes(Files.readAllBytes(Paths.get(absolutePath)));
+        if(!file.exists()){
+            throw new NoSuchFileException(absolutePath);
+        }
+        byte[] buffer = new byte[applicationProperties.getCrc32cBufferSize()];
+        int limit = -1;
+        HashFunction crc32cHashFunc = Hashing.crc32c();
+        Hasher crc32cHasher = crc32cHashFunc.newHasher();
+        //Buffering is needed for large files
+        try (FileInputStream fis = new FileInputStream(file)) {
+            while ((limit = fis.read(buffer)) > 0) {
+                crc32cHasher.putBytes(buffer, 0, limit);
+            }
             crc32CheckSum = Ints.toByteArray(crc32cHasher.hash().asInt());
+        } catch (IOException e) {
+            log.error("Unable to get crc32c for {}", absolutePath,e);
         }
         return BaseEncoding.base64().encode(crc32CheckSum);
     }
@@ -284,29 +294,40 @@ public class FileCatalogServiceImpl implements FileCatalogService{
 
     private void verifyFileCatalogItemIntegrity(FileCatalogItem fileCatalogItem) {
         try{
-            String localItemChecksum = getCheckSum(fileCatalogItem.absolutePath());
-            String cloudProviderItemChecksum = cloudProviderFactory.getCloudProvider(applicationProperties.getCloudProviderConfig().getType()).getCheckSum(fileCatalogItem);
-            log.debug("{} local: {} provider: {}",fileCatalogItem.absolutePath(),localItemChecksum,cloudProviderItemChecksum);
-            if(localItemChecksum.equals(cloudProviderItemChecksum)){
-                updateIndexedCheckSumWhenEmpty(cloudProviderItemChecksum,fileCatalogItem);
-            }else{
-                log.warn("{} checksum difference [local] , cloud provider {}, local {}",fileCatalogItem.absolutePath(),cloudProviderItemChecksum,localItemChecksum);
+            String localCrc32c = getCrC32C(fileCatalogItem.absolutePath());
+            String cloudProviderItemCrc32c = cloudProviderFactory.getCloudProvider(applicationProperties.getCloudProviderConfig().getType()).getCheckSum(fileCatalogItem);
+            if( localCrc32c.equals(cloudProviderItemCrc32c) && cloudProviderItemCrc32c.equals(fileCatalogItem.crc32c())){
+                return;
             }
+            log.debug("{} local: {} provider: {}",fileCatalogItem.absolutePath(),localCrc32c,cloudProviderItemCrc32c);
+            if(localCrc32c.equals(cloudProviderItemCrc32c)){
+                updateIndexedCheckSumWhenEmpty(cloudProviderItemCrc32c,fileCatalogItem);
+            }else{
+                log.warn("{} crc32c difference [local] , cloud provider {}, local {}, will update indexed to cloud value so future operations of cloud archiver re-upload 'modified' local file",fileCatalogItem.absolutePath(),cloudProviderItemCrc32c,localCrc32c);
+                setIndexedCrc32c(cloudProviderItemCrc32c,fileCatalogItem);
+            }
+        }catch(NoSuchFileException nsfe){
+            log.warn("{} not found on disk",fileCatalogItem.absolutePath());
         }catch(Exception e){
             log.error("Unable to verify {}",fileCatalogItem.absolutePath(), e);
         }
     
     }
 
-    private void updateIndexedCheckSumWhenEmpty(String cloudProviderItemChecksum, FileCatalogItem fileCatalogItem) {
-        if(ObjectUtils.isEmpty(fileCatalogItem.checkSum())){
-            fileCatalogItem = fileCatalogItemMapper.mapFromFileCatalogItemUpdateCheckSumOnly(fileCatalogItem, cloudProviderItemChecksum);
-            fileCatalogItemRepository.save(fileCatalogItem);
+    private void updateIndexedCheckSumWhenEmpty(String cloudProviderItemCrc32c, FileCatalogItem fileCatalogItem) {
+        if(ObjectUtils.isEmpty(fileCatalogItem.crc32c())){
+            log.debug("{} indexed crc32c missing, setting cloud value {}",fileCatalogItem.absolutePath(),cloudProviderItemCrc32c);
+            setIndexedCrc32c(cloudProviderItemCrc32c, fileCatalogItem);
         }else{
-            if(!cloudProviderItemChecksum.equals(fileCatalogItem.checkSum())){
-                log.warn("{} checksum difference [indexed], cloud provider and file {}, indexed {}",fileCatalogItem.absolutePath(),cloudProviderItemChecksum,fileCatalogItem.checkSum());
+            if(!cloudProviderItemCrc32c.equals(fileCatalogItem.crc32c())){
+                log.warn("{} crc32c difference [indexed], cloud provider and file {}, indexed {}",fileCatalogItem.absolutePath(),cloudProviderItemCrc32c,fileCatalogItem.crc32c());
             }
         }
+    }
+
+    private void setIndexedCrc32c(String cloudProviderItemCrc32c, FileCatalogItem fileCatalogItem) {
+        fileCatalogItem = fileCatalogItemMapper.mapFromFileCatalogItemUpdateCheckSumOnly(fileCatalogItem, cloudProviderItemCrc32c);
+        fileCatalogItemRepository.save(fileCatalogItem);
     }
 
 }

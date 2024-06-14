@@ -20,4 +20,5 @@ public record FileCatalogItem(
     boolean isDirectory,
     Long fileSize,
     Date archiveDate,
-    String checkSum) {}
+    String crc32c
+    ) {}
