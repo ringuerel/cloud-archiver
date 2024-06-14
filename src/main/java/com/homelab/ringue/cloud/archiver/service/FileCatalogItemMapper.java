@@ -10,4 +10,6 @@ public interface FileCatalogItemMapper {
 
     public FileCatalogItem mapFromFileCatalogItemAddArchiveDateAndCheckSum(FileCatalogItem fileCatalogItem, String checkSum);
 
+    public FileCatalogItem mapFromFileCatalogItemUpdateCheckSumOnly(FileCatalogItem fileCatalogItem, String checkSum);
+
 }

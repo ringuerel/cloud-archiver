@@ -25,7 +25,9 @@ import org.springframework.context.annotation.Scope;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+import org.springframework.util.ObjectUtils;
 
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hasher;
@@ -122,8 +124,7 @@ public class FileCatalogServiceImpl implements FileCatalogService{
 
     private void performBucketCleanup(Pageable catalogPages,ScanLocationConfig locationConfig) {
         //Fix for windows locations regex
-        CharSequence charSquence = new SimpleMessage("\\\\");
-        String rootFolder = locationConfig.getScanFolder().replace(charSquence, "\\");
+        String rootFolder = fixLocationPath(locationConfig.getScanFolder());
         Page<FileCatalogItem> catalogEntriesByPages = null;
         if(Optional.ofNullable(locationConfig.getStandardDeleteDaysLimit()).isPresent()){
             Date since = Date.from(Instant.now().minus(Duration.ofDays(locationConfig.getStandardDeleteDaysLimit())));
@@ -140,6 +141,11 @@ public class FileCatalogServiceImpl implements FileCatalogService{
         }
     }
 
+    private String fixLocationPath(String locationPath) {
+        CharSequence charSquence = new SimpleMessage("\\\\");
+        return locationPath.replace(charSquence, "\\");
+    }
+
     private void processCatalogEntryForCleanup(Stream<FileCatalogItem> parallelStream) {
         parallelStream
         .filter(this::isFileNotExistOnDisk)
@@ -150,7 +156,7 @@ public class FileCatalogServiceImpl implements FileCatalogService{
         log.trace("Starting on backup:{}",locationConfig.getScanFolder());
         Path folder = Paths.get(locationConfig.getScanFolder());
         log.trace("Got path for folder:{}",folder.toString());
-        Map<String,String> collectionIdsInMemoryCache = new ConcurrentHashMap<>();
+        Map<String,FileCatalogItem> collectionIdsInMemoryCache = new ConcurrentHashMap<>();
         log.trace("About to get documents from collection:{}",folder.toString());
         putCollectionIdsInMemoryCache(locationConfig,PageRequest.ofSize(locationConfig.getCollectionFetchSize()),collectionIdsInMemoryCache);
         log.trace("InMemory collection size:{}",collectionIdsInMemoryCache.size());
@@ -163,7 +169,7 @@ public class FileCatalogServiceImpl implements FileCatalogService{
         log.debug("Finished with backup process: {}",locationConfig.getScanFolder());
     }
 
-    void processFileStreamForBackup(ScanLocationConfig locationConfig, Map<String, String> collectionIdsInMemoryCache,
+    void processFileStreamForBackup(ScanLocationConfig locationConfig, Map<String, FileCatalogItem> collectionIdsInMemoryCache,
             Stream<Path> filesStream) {
         locationConfig.initScanConfigLocation();
         filesStream
@@ -181,12 +187,11 @@ public class FileCatalogServiceImpl implements FileCatalogService{
         .forEach(this::performCloudBackup);
     }
 
-    private void putCollectionIdsInMemoryCache(ScanLocationConfig locationConfig, Pageable pageRequest, Map<String, String> catalogItemsKeys) {
-        CharSequence charSquence = new SimpleMessage("\\\\");
-        String rootFolder = locationConfig.getScanFolder().replace(charSquence, "\\");
+    private void putCollectionIdsInMemoryCache(ScanLocationConfig locationConfig, Pageable pageRequest, Map<String, FileCatalogItem> catalogItemsKeys) {
+        String rootFolder = fixLocationPath(locationConfig.getScanFolder());
         Page<FileCatalogItem> archivedCatalogItems = fileCatalogItemRepository.findByParentFolderStartsWith(rootFolder,pageRequest);
         log.trace("Got documents {} for collection",archivedCatalogItems.getTotalElements());
-        archivedCatalogItems.get().parallel().map(FileCatalogItem::absolutePath).forEach(absolutePath -> catalogItemsKeys.put(absolutePath,absolutePath));
+        archivedCatalogItems.get().parallel().forEach(fileCatalogItem -> catalogItemsKeys.put(fileCatalogItem.absolutePath(),fileCatalogItem));
         if((archivedCatalogItems.hasNext())){
             log.trace("Pageable {}/{}",pageRequest.getPageSize(),pageRequest.getPageNumber());
             putCollectionIdsInMemoryCache(locationConfig,archivedCatalogItems.nextPageable(),catalogItemsKeys);
@@ -232,6 +237,8 @@ public class FileCatalogServiceImpl implements FileCatalogService{
     private String getCheckSum(String absolutePath) throws IOException {
         byte[] crc32CheckSum = new byte[0];
         File file = Paths.get(absolutePath).toFile();
+        //com.google.common.io.Files.asByteSource(file).hash(Hashing.goodFastHash(32))
+        //explore the above to avoid OutOfMemmory issue
         if(file != null) {
             HashFunction crc32cHashFunc = Hashing.crc32c();
             Hasher crc32cHasher = crc32cHashFunc.newHasher();
@@ -253,6 +260,52 @@ public class FileCatalogServiceImpl implements FileCatalogService{
             catalogSize.addAndGet(filecatalogitem.fileSize());
         }catch(Exception e){
             log.error("Unable to delete {} from the CloudProvider {}, item will be preserved in the catalog database for next iteration attempt", filecatalogitem.absolutePath(),applicationProperties.getCloudProviderConfig().getType(),e);
+        }
+    }
+
+    @Override
+    @Async
+    public void performReconcile(ScanLocationConfig locationConfig) {
+        log.info(">> Starts reconcile process {} -",locationConfig.getScanFolder());
+        String rootFolder = fixLocationPath(locationConfig.getScanFolder());
+        PageRequest pageRequest = PageRequest.ofSize(locationConfig.getCollectionFetchSize());
+        performPagedReconcile(locationConfig, rootFolder, pageRequest);
+        log.info("<< Ends reconcile process {} -",locationConfig.getScanFolder());
+    }
+
+    private void performPagedReconcile(ScanLocationConfig locationConfig, String rootFolder,
+            Pageable pageRequest) {
+        Page<FileCatalogItem> archivedCatalogItems = fileCatalogItemRepository.findByParentFolderStartsWith(rootFolder,pageRequest);
+        archivedCatalogItems.get().parallel().forEach(this::verifyFileCatalogItemIntegrity);
+        if((archivedCatalogItems.hasNext())){
+            performPagedReconcile(locationConfig, rootFolder, archivedCatalogItems.nextPageable());
+        }
+    }
+
+    private void verifyFileCatalogItemIntegrity(FileCatalogItem fileCatalogItem) {
+        try{
+            String localItemChecksum = getCheckSum(fileCatalogItem.absolutePath());
+            String cloudProviderItemChecksum = cloudProviderFactory.getCloudProvider(applicationProperties.getCloudProviderConfig().getType()).getCheckSum(fileCatalogItem);
+            log.debug("{} local: {} provider: {}",fileCatalogItem.absolutePath(),localItemChecksum,cloudProviderItemChecksum);
+            if(localItemChecksum.equals(cloudProviderItemChecksum)){
+                updateIndexedCheckSumWhenEmpty(cloudProviderItemChecksum,fileCatalogItem);
+            }else{
+                log.warn("{} checksum difference [local] , cloud provider {}, local {}",fileCatalogItem.absolutePath(),cloudProviderItemChecksum,localItemChecksum);
+            }
+        }catch(Exception e){
+            log.error("Unable to verify {}",fileCatalogItem.absolutePath(), e);
+        }
+    
+    }
+
+    private void updateIndexedCheckSumWhenEmpty(String cloudProviderItemChecksum, FileCatalogItem fileCatalogItem) {
+        if(ObjectUtils.isEmpty(fileCatalogItem.checkSum())){
+            fileCatalogItem = fileCatalogItemMapper.mapFromFileCatalogItemUpdateCheckSumOnly(fileCatalogItem, cloudProviderItemChecksum);
+            fileCatalogItemRepository.save(fileCatalogItem);
+        }else{
+            if(!cloudProviderItemChecksum.equals(fileCatalogItem.checkSum())){
+                log.warn("{} checksum difference [indexed], cloud provider and file {}, indexed {}",fileCatalogItem.absolutePath(),cloudProviderItemChecksum,fileCatalogItem.checkSum());
+            }
         }
     }
 

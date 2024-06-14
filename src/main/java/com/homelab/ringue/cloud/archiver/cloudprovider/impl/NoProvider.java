@@ -1,5 +1,6 @@
 package com.homelab.ringue.cloud.archiver.cloudprovider.impl;
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
 
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -25,6 +26,12 @@ public class NoProvider implements CloudProvider{
     @Override
     public void delete(FileCatalogItem fileCatalogItem) throws IOException {
         log.trace("{} would have been deleted on cloud provider", fileCatalogItem.absolutePath());
+    }
+
+    @Override
+    public String getCheckSum(FileCatalogItem fileCatalogItem) throws FileNotFoundException, IOException {
+        log.trace("{} would have been obtained crc32c", fileCatalogItem.absolutePath());
+        return "crc32cmock";
     }
 
 }

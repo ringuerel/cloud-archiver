@@ -12,4 +12,6 @@ public interface FileCatalogService {
 
     void performLocationSync(ScanLocationConfig scanlocationconfig) throws CloudBackupException;
 
+    void performReconcile(ScanLocationConfig locationConfig);
+
 }

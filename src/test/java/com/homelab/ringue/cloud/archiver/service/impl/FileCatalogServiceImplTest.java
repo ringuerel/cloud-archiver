@@ -133,8 +133,8 @@ public class FileCatalogServiceImplTest {
         .thenReturn(someMovFile);
         //This should have it's own test
         Mockito.doNothing().when(serviceImplSpy).performCloudBackup(Mockito.any());
-        Map<String, String> backedUpItems = new HashMap<>();
-        backedUpItems.put(someMovFile.absolutePath(), someMovFile.absolutePath());
+        Map<String, FileCatalogItem> backedUpItems = new HashMap<>();
+        backedUpItems.put(someMovFile.absolutePath(), someMovFile);
         serviceImplSpy.processFileStreamForBackup(scanLocationConfigMock, backedUpItems, filesStream);
         Mockito.verify(serviceImplSpy,Mockito.times(2)).performCloudBackup(Mockito.any());
     }

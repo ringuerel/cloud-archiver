@@ -107,4 +107,15 @@ public class GCPStorageProvider implements CloudProvider{
         return GoogleCredentials.fromStream(new FileInputStream(applicationProperties.getCloudProviderConfig().getCredentialsFilePath()));
     }
 
+    @Override
+    public String getCheckSum(FileCatalogItem fileCatalogItem) throws FileNotFoundException, IOException {
+        String gcpObjectName = getGcpObjectName(fileCatalogItem);
+        String gcpBucketName = applicationProperties.getCloudProviderConfig().getBucketName();
+        String gcpProjectId = applicationProperties.getCloudProviderConfig().getProjectId();
+        Storage storage = getConfiguredStorage(gcpProjectId);
+        BlobId blobId = getBlobId(gcpObjectName, gcpBucketName);
+        Blob blob = storage.get(blobId, Storage.BlobGetOption.fields(Storage.BlobField.values()));
+        return blob.getCrc32c();
+    }
+
 }

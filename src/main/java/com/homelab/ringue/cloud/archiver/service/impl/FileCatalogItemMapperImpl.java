@@ -42,4 +42,9 @@ public class FileCatalogItemMapperImpl implements FileCatalogItemMapper {
         return new FileCatalogItem(fileCatalogItem.absolutePath(), fileCatalogItem.fileName(), fileCatalogItem.fileExtension(), fileCatalogItem.parentFolder(), fileCatalogItem.isDirectory(), fileCatalogItem.fileSize(), new Date(),checkSum);
     }
 
+    @Override
+    public FileCatalogItem mapFromFileCatalogItemUpdateCheckSumOnly(FileCatalogItem fileCatalogItem, String checkSum) {
+        return new FileCatalogItem(fileCatalogItem.absolutePath(), fileCatalogItem.fileName(), fileCatalogItem.fileExtension(), fileCatalogItem.parentFolder(), fileCatalogItem.isDirectory(), fileCatalogItem.fileSize(), fileCatalogItem.archiveDate(),checkSum);
+    }
+
 }
