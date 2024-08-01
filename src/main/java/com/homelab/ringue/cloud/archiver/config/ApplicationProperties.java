@@ -1,5 +1,6 @@
 package com.homelab.ringue.cloud.archiver.config;
 
+import java.net.URI;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -23,6 +24,7 @@ import lombok.NoArgsConstructor;
 public class ApplicationProperties {
     private List<ScanLocationConfig> scanFolders;
     private CloudProviderConfig cloudProviderConfig;
+    private NotificationsConfig notificationsConfig;
     private Integer crc32cBufferSize;
 
     public int getCrc32cBufferSize(){
@@ -36,6 +38,14 @@ public class ApplicationProperties {
         private String projectId;
         private String credentialsFilePath;
         private String storageClass;
+    }
+
+    @Data
+    public static class NotificationsConfig{
+        private URI uri;
+        private String userName;
+        private String newItemsText;
+        private String deletedItemsText;
     }
 
     @Data

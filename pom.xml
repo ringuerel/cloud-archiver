@@ -10,7 +10,7 @@
 	</parent>
 	<groupId>com.homelab.ringue</groupId>
 	<artifactId>cloud-archiver</artifactId>
-	<version>0.9.7-SNAPSHOT</version>
+	<version>0.9.8-SNAPSHOT</version>
 	<name>cloud-archiver</name>
 	<description>Uploads configured folder content (media) to archive on a cloud provider</description>
 	<properties>
@@ -50,7 +50,10 @@
 			<artifactId>guava</artifactId>
 			<version>33.2.1-jre</version>
 		</dependency>
-
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-webflux</artifactId>
+		</dependency>
 
 	</dependencies>
 
