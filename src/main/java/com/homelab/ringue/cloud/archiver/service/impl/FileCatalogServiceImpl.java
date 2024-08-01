@@ -46,6 +46,7 @@ import com.homelab.ringue.cloud.archiver.repository.FileCatalogItemRepository;
 import com.homelab.ringue.cloud.archiver.repository.SyncSummaryRepository;
 import com.homelab.ringue.cloud.archiver.service.FileCatalogItemMapper;
 import com.homelab.ringue.cloud.archiver.service.FileCatalogService;
+import com.homelab.ringue.cloud.archiver.service.NotificationService;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -66,13 +67,16 @@ public class FileCatalogServiceImpl implements FileCatalogService{
 
     private ApplicationProperties applicationProperties;
 
+    private NotificationService notificationService;
+
     @Autowired
-    public FileCatalogServiceImpl(FileCatalogItemRepository fileCatalogItemRepository, FileCatalogItemMapper fileCatalogItemMapper,CloudProviderFactory cloudProviderFactory, ApplicationProperties applicationProperties,SyncSummaryRepository syncSummaryRepository){
+    public FileCatalogServiceImpl(FileCatalogItemRepository fileCatalogItemRepository, FileCatalogItemMapper fileCatalogItemMapper,CloudProviderFactory cloudProviderFactory, ApplicationProperties applicationProperties,SyncSummaryRepository syncSummaryRepository, NotificationService notificationService){
         this.fileCatalogItemRepository = fileCatalogItemRepository;
         this.fileCatalogItemMapper = fileCatalogItemMapper;
         this.cloudProviderFactory = cloudProviderFactory;
         this.applicationProperties = applicationProperties;
         this.syncSummaryRepository = syncSummaryRepository;
+        this.notificationService = notificationService;
     }
 
     @Override
@@ -113,6 +117,7 @@ public class FileCatalogServiceImpl implements FileCatalogService{
         String summaryId = Instant.now().atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("MM-dd-yyyy"));
         SyncSummaryItem syncSummary = syncSummaryRepository.findById(summaryId).orElseGet(()-> new SyncSummaryItem(summaryId, 0, 0, 0, 0,Instant.now()));
         SyncSummaryItem savedSummary = syncSummaryRepository.save(new SyncSummaryItem(summaryId, syncSummary.uploadCount() + uploadCount, syncSummary.uploadSize() + uploadSize, syncSummary.deleteCount() + deleteCount, syncSummary.deleteSize() + deleteSize,Instant.now()));
+        notificationService.notifySummary(savedSummary);
         log.info("Sync summary {}",savedSummary);
     }
 
@@ -166,6 +171,7 @@ public class FileCatalogServiceImpl implements FileCatalogService{
             processFileStreamForBackup(locationConfig, collectionIdsInMemoryCache, filesList);
         } catch (Exception e) {
             log.error("Failed processing {} for cloud backup",locationConfig, e);
+            notificationService.notifyError("Error during cloud backup "+locationConfig+" "+e.getMessage());
             throw new CloudBackupException(locationConfig.getScanFolder(),e);
         }
         log.debug("Finished with backup process: {}",locationConfig.getScanFolder());
@@ -179,12 +185,16 @@ public class FileCatalogServiceImpl implements FileCatalogService{
         .filter(Objects::nonNull)
         .filter(fileCatalogItem -> this.applyFilteringRules(locationConfig,fileCatalogItem))
         .filter(importingFileCatalogItem -> !importingFileCatalogItem.isDirectory())
+        .map(this::getCrC32CPopulatedItem)
+        .filter(Objects::nonNull)//Filters out null again due to crc32c failures will return null
         .filter(importingFileCatalogItem -> {
-            boolean shouldPersist = !collectionIdsInMemoryCache.containsKey(importingFileCatalogItem.absolutePath());
-            if(!shouldPersist){
-                collectionIdsInMemoryCache.remove(importingFileCatalogItem.absolutePath());
+            boolean isNewItemToIndex = !collectionIdsInMemoryCache.containsKey(importingFileCatalogItem.absolutePath());
+            if(!isNewItemToIndex){
+                FileCatalogItem indexedCatalogItem = collectionIdsInMemoryCache.remove(importingFileCatalogItem.absolutePath());
+                //If crc32c is not equal then file changed and needs to be updated
+                return !indexedCatalogItem.crc32c().equals(importingFileCatalogItem.crc32c());
             }
-            return shouldPersist;
+            return true;
         })
         .forEach(this::performCloudBackup);
     }
@@ -226,17 +236,18 @@ public class FileCatalogServiceImpl implements FileCatalogService{
     void performCloudBackup(FileCatalogItem fileCatalogItem){
         try {
             log.debug("Performing cloud backup for: {} with a size of: {}",fileCatalogItem.absolutePath(), fileCatalogItem.fileSize());
-            fileCatalogItem = fileCatalogItemMapper.mapFromFileCatalogItemAddArchiveDateAndCheckSum(fileCatalogItem, getCrC32C(fileCatalogItem.absolutePath()));
+            fileCatalogItem = fileCatalogItemMapper.mapFromFileCatalogItemAddArchiveDate(fileCatalogItem);
             cloudProviderFactory.getCloudProvider(applicationProperties.getCloudProviderConfig().getType()).upload(fileCatalogItem);
             fileCatalogItemRepository.save(fileCatalogItem);
             catalogCount.incrementAndGet();
             catalogSize.addAndGet(fileCatalogItem.fileSize());
         } catch (Exception e) {
             log.error("Failed to upload {} to the cloud provider",fileCatalogItem.absolutePath(), e);
+            notificationService.notifyError("Failed to upload "+fileCatalogItem.absolutePath()+" "+e.getMessage());
         }
     }
 
-    private String getCrC32C(String absolutePath) throws IOException {
+    protected String getCrC32C(String absolutePath) throws IOException {
         byte[] crc32CheckSum = new byte[0];
         File file = Paths.get(absolutePath).toFile();
         if(!file.exists()){
@@ -286,7 +297,7 @@ public class FileCatalogServiceImpl implements FileCatalogService{
     private void performPagedReconcile(ScanLocationConfig locationConfig, String rootFolder,
             Pageable pageRequest) {
         Page<FileCatalogItem> archivedCatalogItems = fileCatalogItemRepository.findByParentFolderStartsWith(rootFolder,pageRequest);
-        archivedCatalogItems.get().parallel().forEach(this::verifyFileCatalogItemIntegrity);
+        archivedCatalogItems.get().parallel().map(this::getCrC32CPopulatedItem).filter(Objects::nonNull).forEach(this::verifyFileCatalogItemIntegrity);
         if((archivedCatalogItems.hasNext())){
             performPagedReconcile(locationConfig, rootFolder, archivedCatalogItems.nextPageable());
         }
@@ -294,7 +305,7 @@ public class FileCatalogServiceImpl implements FileCatalogService{
 
     private void verifyFileCatalogItemIntegrity(FileCatalogItem fileCatalogItem) {
         try{
-            String localCrc32c = getCrC32C(fileCatalogItem.absolutePath());
+            String localCrc32c = fileCatalogItem.crc32c();
             String cloudProviderItemCrc32c = cloudProviderFactory.getCloudProvider(applicationProperties.getCloudProviderConfig().getType()).getCheckSum(fileCatalogItem);
             if( localCrc32c.equals(cloudProviderItemCrc32c) && cloudProviderItemCrc32c.equals(fileCatalogItem.crc32c())){
                 return;
@@ -326,8 +337,17 @@ public class FileCatalogServiceImpl implements FileCatalogService{
     }
 
     private void setIndexedCrc32c(String cloudProviderItemCrc32c, FileCatalogItem fileCatalogItem) {
-        fileCatalogItem = fileCatalogItemMapper.mapFromFileCatalogItemUpdateCheckSumOnly(fileCatalogItem, cloudProviderItemCrc32c);
+        fileCatalogItem = fileCatalogItemMapper.mapFromFileCatalogItemUpdateCheckSum(fileCatalogItem, cloudProviderItemCrc32c);
         fileCatalogItemRepository.save(fileCatalogItem);
+    }
+
+    protected FileCatalogItem getCrC32CPopulatedItem(FileCatalogItem filecatalogitem){
+        try {
+            return fileCatalogItemMapper.mapFromFileCatalogItemUpdateCheckSum(filecatalogitem,getCrC32C(filecatalogitem.absolutePath()));
+        } catch (IOException e) {
+            log.error("{} failed on crc32c generation",filecatalogitem.absolutePath(),e);
+            return null;
+        }
     }
 
 }

@@ -3,6 +3,7 @@ package com.homelab.ringue.cloud.archiver.service.impl;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mockStatic;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
@@ -39,6 +40,7 @@ import com.homelab.ringue.cloud.archiver.service.FileCatalogItemMapper;
 public class FileCatalogServiceImplTest {
 
     private static final String TEST_SCAN_FOLDER = "/test/scan/folder/";
+    private static final String CRC32C = "MOCKCRC32C";
 
     @Spy
     @InjectMocks
@@ -114,11 +116,11 @@ public class FileCatalogServiceImplTest {
 
 
     @Test
-    void processFileStreamForBackupIgnoresBackedUpItems(){
-        FileCatalogItem someFile = new FileCatalogItem(TEST_SCAN_FOLDER+"/someFile.jpg", "someFile.jpg", "jpg", TEST_SCAN_FOLDER, false, 50L, null,null);
-        FileCatalogItem otherFile = new FileCatalogItem(TEST_SCAN_FOLDER+"/otherFile.jpg", "someFile.jpg", "jpg", TEST_SCAN_FOLDER, false, 70L, null,null);
-        FileCatalogItem someMovFile = new FileCatalogItem(TEST_SCAN_FOLDER+"/someMovFile.mov", "someMovFile.mov", "mov", TEST_SCAN_FOLDER, false, 250L, null,null);
-        FileCatalogItem someFolder = new FileCatalogItem(TEST_SCAN_FOLDER+"/someFolder", "someMovFile", null, TEST_SCAN_FOLDER, true, 0L, null,null);
+    void processFileStreamForBackupIgnoresBackedUpItems() throws IOException{
+        FileCatalogItem someFile = new FileCatalogItem(TEST_SCAN_FOLDER+"/someFile.jpg", "someFile.jpg", "jpg", TEST_SCAN_FOLDER, false, 50L, null,CRC32C);
+        FileCatalogItem otherFile = new FileCatalogItem(TEST_SCAN_FOLDER+"/otherFile.jpg", "someFile.jpg", "jpg", TEST_SCAN_FOLDER, false, 70L, null,CRC32C);
+        FileCatalogItem someMovFile = new FileCatalogItem(TEST_SCAN_FOLDER+"/someMovFile.mov", "someMovFile.mov", "mov", TEST_SCAN_FOLDER, false, 250L, null,CRC32C);
+        FileCatalogItem someFolder = new FileCatalogItem(TEST_SCAN_FOLDER+"/someFolder", "someMovFile", null, TEST_SCAN_FOLDER, true, 0L, null,CRC32C);
         Stream<Path> filesStream = prepareFilesStream(Arrays.asList(
             someFile.absolutePath(),
             otherFile.absolutePath(),
@@ -133,6 +135,11 @@ public class FileCatalogServiceImplTest {
         .thenReturn(someMovFile);
         //This should have it's own test
         Mockito.doNothing().when(serviceImplSpy).performCloudBackup(Mockito.any());
+        Mockito.doReturn(CRC32C).when(serviceImplSpy).getCrC32C(Mockito.anyString());
+        Mockito.doReturn(someFile).when(serviceImplSpy).getCrC32CPopulatedItem(someFile);
+        Mockito.doReturn(otherFile).when(serviceImplSpy).getCrC32CPopulatedItem(otherFile);
+        Mockito.doReturn(someMovFile).when(serviceImplSpy).getCrC32CPopulatedItem(someMovFile);
+        Mockito.doReturn(someFolder).when(serviceImplSpy).getCrC32CPopulatedItem(someFolder);
         Map<String, FileCatalogItem> backedUpItems = new HashMap<>();
         backedUpItems.put(someMovFile.absolutePath(), someMovFile);
         serviceImplSpy.processFileStreamForBackup(scanLocationConfigMock, backedUpItems, filesStream);
