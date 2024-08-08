@@ -50,7 +50,7 @@ public class WebhookNotificationService implements NotificationService{
         if(notificationsConfig == null){
             return;
         }
-        sendWebhookMessage(String.format("%s %d files for %s\n%s %d files for %s, location: %s",notificationsConfig.getNewItemsText(),summary.uploadCount(),humanReadableByteCountSI(summary.uploadSize()), notificationsConfig.getDeletedItemsText(),summary.deleteCount(),humanReadableByteCountSI(summary.deleteSize()),scanlocationconfig.getScanFolder()));
+        sendWebhookMessage(String.format("%s\n%s %d files for %s\n%s %d files for %s",scanlocationconfig.getScanFolder(),notificationsConfig.getNewItemsText(),summary.uploadCount(),humanReadableByteCountSI(summary.uploadSize()), notificationsConfig.getDeletedItemsText(),summary.deleteCount(),humanReadableByteCountSI(summary.deleteSize())));
     }
 
     private void sendWebhookMessage(String webhookMessage){

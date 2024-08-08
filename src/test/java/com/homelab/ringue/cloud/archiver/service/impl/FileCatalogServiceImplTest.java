@@ -81,7 +81,7 @@ public class FileCatalogServiceImplTest {
         Mockito.when(applicationProperties.getCloudProviderConfig()).thenReturn(cloudProviderConfig);
         Mockito.when(cloudProviderConfig.getType()).thenReturn(CloudProviders.NO_PROVIDER);
         Mockito.when(cloudProviderFactory.getCloudProvider(Mockito.any())).thenReturn(cloudProvider);
-        Mockito.when(fileCatalogItemRepository.findByParentFolderStartsWith(Mockito.anyString(),Mockito.any())).thenReturn(fileCatalogPageMock);
+        Mockito.when(fileCatalogItemRepository.findByParentFolder(Mockito.anyString(),Mockito.any())).thenReturn(fileCatalogPageMock);
     }
 
 
@@ -110,7 +110,7 @@ public class FileCatalogServiceImplTest {
                        .thenReturn(mockStream);
             serviceImplSpy.performLocationSync(scanLocationConfigMock);
         }
-        Mockito.verify(fileCatalogItemRepository,Mockito.times(cleanRemovedFromCloud?2:1)).findByParentFolderStartsWith(Mockito.anyString(),Mockito.any());
+        Mockito.verify(fileCatalogItemRepository,Mockito.times(cleanRemovedFromCloud?2:1)).findByParentFolder(Mockito.anyString(),Mockito.any());
         Mockito.verify(serviceImplSpy).processFileStreamForBackup(Mockito.any(),Mockito.any(),Mockito.any());
     }
 
