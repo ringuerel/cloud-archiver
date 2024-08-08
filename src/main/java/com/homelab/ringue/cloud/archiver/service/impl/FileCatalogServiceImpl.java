@@ -96,7 +96,7 @@ public class FileCatalogServiceImpl implements FileCatalogService{
             deleteCount = catalogCount.get();
             deleteSize = catalogSize.get();
         }
-        addSummaryEntry(updloadCount,uploadSize,deleteCount,deleteSize);
+        addSummaryEntry(updloadCount,uploadSize,deleteCount,deleteSize,scanlocationconfig);
         log.info("Location: {} uploads: {} with {} bytes, deletes: {} with {} bytes",scanlocationconfig.getScanFolder(),updloadCount,uploadSize,deleteCount,deleteSize);
     }
 
@@ -108,17 +108,19 @@ public class FileCatalogServiceImpl implements FileCatalogService{
         log.info("<<< Completed cloud backup with {} items {} bytes uploaded to the CloudProvider {}",catalogCount.get(),catalogSize.get(), applicationProperties.getCloudProviderConfig().getType());
     }
 
-    private void addSummaryEntry(int uploadCount, long uploadSize, int deleteCount, long deleteSize) {
+    private void addSummaryEntry(int uploadCount, long uploadSize, int deleteCount, long deleteSize, ScanLocationConfig scanlocationconfig) {
         if(uploadCount == 0 && deleteCount == 0){
             //No summary is persisted
             return;
         }
         // Format LocalDate as a string with the desired format
         String summaryId = Instant.now().atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("MM-dd-yyyy"));
-        SyncSummaryItem syncSummary = syncSummaryRepository.findById(summaryId).orElseGet(()-> new SyncSummaryItem(summaryId, 0, 0, 0, 0,Instant.now()));
-        SyncSummaryItem savedSummary = syncSummaryRepository.save(new SyncSummaryItem(summaryId, syncSummary.uploadCount() + uploadCount, syncSummary.uploadSize() + uploadSize, syncSummary.deleteCount() + deleteCount, syncSummary.deleteSize() + deleteSize,Instant.now()));
-        notificationService.notifySummary(savedSummary);
-        log.info("Sync summary {}",savedSummary);
+        SyncSummaryItem currentSyncSummaryItem = new SyncSummaryItem(summaryId, uploadCount, uploadSize, deleteCount, deleteSize,Instant.now());
+        SyncSummaryItem existingSyncSummary = syncSummaryRepository.findById(summaryId).orElseGet(()-> new SyncSummaryItem(summaryId, 0, 0, 0, 0,Instant.now()));
+        SyncSummaryItem savedSummary = syncSummaryRepository.save(new SyncSummaryItem(summaryId, existingSyncSummary.uploadCount() + currentSyncSummaryItem.uploadCount(), existingSyncSummary.uploadSize() + currentSyncSummaryItem.uploadSize(),
+        existingSyncSummary.deleteCount() + currentSyncSummaryItem.deleteCount(), existingSyncSummary.deleteSize() + currentSyncSummaryItem.deleteSize(),Instant.now()));
+        notificationService.notifySummary(currentSyncSummaryItem,scanlocationconfig);
+        log.info("Sync summary {} for {}",savedSummary,scanlocationconfig.getScanFolder());
     }
 
     private void startCloudCleanup(ScanLocationConfig locationConfig) throws CloudBackupException{
@@ -137,7 +139,8 @@ public class FileCatalogServiceImpl implements FileCatalogService{
             Date since = Date.from(Instant.now().minus(Duration.ofDays(locationConfig.getStandardDeleteDaysLimit())));
             Date olderThan = Date.from(Instant.now().minus(Duration.ofDays(locationConfig.getArchiveDeleteDaysHold() + locationConfig.getStandardDeleteDaysLimit())));
             log.debug("{} will check for imports since {} or older than {}",locationConfig.getScanFolder(),since,olderThan);
-            catalogEntriesByPages = fileCatalogItemRepository.findByParentFolderStartingWithAndArchiveDateAfterOrArchiveDateBefore(rootFolder,since,olderThan,catalogPages);
+            //catalogEntriesByPages = fileCatalogItemRepository.findByParentFolderStartingWithAndArchiveDateAfterOrArchiveDateBefore(rootFolder,since,olderThan,catalogPages);
+            catalogEntriesByPages = fileCatalogItemRepository.findByParentFolderStartingWithAndArchiveDateAfterOrParentFolderStartingWithAndArchiveDateBefore(rootFolder,since,rootFolder,olderThan,catalogPages);
         }else{
             catalogEntriesByPages = fileCatalogItemRepository.findByParentFolderStartsWith(rootFolder,catalogPages);
         }

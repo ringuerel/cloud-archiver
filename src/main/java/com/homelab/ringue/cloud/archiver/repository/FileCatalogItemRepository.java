@@ -16,5 +16,6 @@ public interface FileCatalogItemRepository extends MongoRepository<FileCatalogIt
     Optional<FileCatalogItem> findById(String absolutePath);
     List<FileCatalogItem> findByFileNameContains(String fileName);
     Page<FileCatalogItem> findByParentFolderStartsWith(String parentFolder,Pageable pageable);
-    Page<FileCatalogItem> findByParentFolderStartingWithAndArchiveDateAfterOrArchiveDateBefore(String rootFolder, Date since,Date olderThan, Pageable catalogPages);
+    Page<FileCatalogItem> findByParentFolderStartingWithAndArchiveDateAfterOrParentFolderStartingWithAndArchiveDateBefore(
+            String rootFolder, Date since, String rootFolder2, Date olderThan, Pageable catalogPages);
 }

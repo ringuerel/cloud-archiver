@@ -9,6 +9,7 @@ import org.springframework.web.client.RestTemplate;
 
 import com.homelab.ringue.cloud.archiver.config.ApplicationProperties;
 import com.homelab.ringue.cloud.archiver.config.ApplicationProperties.NotificationsConfig;
+import com.homelab.ringue.cloud.archiver.config.ApplicationProperties.ScanLocationConfig;
 import com.homelab.ringue.cloud.archiver.domain.SyncSummaryItem;
 import com.homelab.ringue.cloud.archiver.service.NotificationService;
 
@@ -45,11 +46,11 @@ public class WebhookNotificationService implements NotificationService{
     }
 
     @Override
-    public void notifySummary(SyncSummaryItem summary) {
+    public void notifySummary(SyncSummaryItem summary,ScanLocationConfig scanlocationconfig) {
         if(notificationsConfig == null){
             return;
         }
-        sendWebhookMessage(String.format("%s %d files for %s\n%s %d files for %s",notificationsConfig.getNewItemsText(),summary.uploadCount(),humanReadableByteCountSI(summary.uploadSize()), notificationsConfig.getDeletedItemsText(),summary.deleteCount(),humanReadableByteCountSI(summary.deleteSize())));
+        sendWebhookMessage(String.format("%s %d files for %s\n%s %d files for %s, location: %s",notificationsConfig.getNewItemsText(),summary.uploadCount(),humanReadableByteCountSI(summary.uploadSize()), notificationsConfig.getDeletedItemsText(),summary.deleteCount(),humanReadableByteCountSI(summary.deleteSize()),scanlocationconfig.getScanFolder()));
     }
 
     private void sendWebhookMessage(String webhookMessage){
