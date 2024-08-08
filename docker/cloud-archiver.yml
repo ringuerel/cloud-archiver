@@ -1,0 +1,83 @@
+---
+version: "3"
+services:
+  syncthing:
+    image: ringuerel/cloud-archiver:0.9.8
+    container_name: cloudarchiver
+    hostname: cloudarchiver
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=America/New_York
+      - CRC32CBUFFERSIZE=2048
+      # APPLICATION_SCANFOLDERS_0 reffers to the first of a list, APPLICATION_SCANFOLDERS_1 would be second, as cloudarchiver can scan more than 1 folder
+      # Folder root to be scanned and synchronized to the cloud bucket
+      - APPLICATION_SCANFOLDERS_0_SCANFOLDER=/immich/library
+      # true = Deleted files on local disk will also be deleted from cloud bucket, false = Deleted files on local disk will NOT be deleted from cloud bucket
+      - APPLICATION_SCANFOLDERS_0_CLEANREMOVEDFROMCLOUD=true
+      # If configured to delete files on cloud bucket, files will be deleted only if these were uploaded before the configrued days on APPLICATION_SCANFOLDERS_X_STANDARDDELETEDAYSLIMIT
+      # Configured days here should be equal or lower than the configured days on the cloud bucket to move the files from Standard to a colder storage (i.e nearline or archive)
+      - APPLICATION_SCANFOLDERS_0_STANDARDDELETEDAYSLIMIT=25
+      # Once a file has been uploaded to the cloud and not deleted within the STANDARDDELETEDAYSLIMIT it'll be deleted only after ARCHIVEDELETEDAYSHOLD days this to avoid/reduce early deletion fees
+      - APPLICATION_SCANFOLDERS_0_ARCHIVEDELETEDAYSHOLD=366
+      # Ignore Patterns are optional, it is a list of regex to be used in order to filter out files (based on the absolute file path within the docker container)
+      # this docker compose provides 4 patterns to be ignored
+      - APPLICATION_SCANFOLDERS_0_IGNOREPATTERNS_0=^\..+
+      - APPLICATION_SCANFOLDERS_0_IGNOREPATTERNS_1=^_.*
+      - APPLICATION_SCANFOLDERS_0_IGNOREPATTERNS_2=.+\.(mov|PNG)$
+      - APPLICATION_SCANFOLDERS_0_IGNOREPATTERNS_3=^\/immich\/library\/donotsyncusername
+      # ture = will not upload hidden files to the cloud bucket, false = will upload hidden files to the cloud bucket
+      - APPLICATION_SCANFOLDERS_0_IGNOREHIDDENFILES=true
+      # Think about this as the page size when reading from the MongoDB, smaller numbers will use less memory up front but will increase back and forth with the DB
+      # which may add time to the total transaction time
+      - APPLICATION_SCANFOLDERS_0_COLLECTIONFETCHSIZE=10000
+      - APPLICATION_SCANFOLDERS_1_SCANFOLDER=/anotherlocation
+      - APPLICATION_SCANFOLDERS_1_CLEANREMOVEDFROMCLOUD=true
+      - APPLICATION_SCANFOLDERS_1_STANDARDDELETEDAYSLIMIT=25
+      - APPLICATION_SCANFOLDERS_1_ARCHIVEDELETEDAYSHOLD=366
+      - APPLICATION_SCANFOLDERS_1_IGNOREHIDDENFILES=true
+      - APPLICATION_SCANFOLDERS_1_COLLECTIONFETCHSIZE=1000
+      # Log conofugration, DEBUG is very noisy
+      - LOGGING_LEVEL_COM_HOMELAB_RINGUE=INFO
+      # Log conofugration, for mongo driver
+      - LOGGING_LEVEL_COM_MONGODB=WARN
+      # Cron expression for the sync execution, this example triggers at 5:30 am every day every month every year
+      - BACKUP_SCHEDULE_CRON=0 30 5 * * *
+      # Cloud provider is where the bucket is hosted
+      # GCP = Google Cloud Platform which is the only one supported so far
+      # NO_PROVIDER = This is a test provider, which has no cloud, the application will just interact with MongoDB but will not upload files to any cloud, will produce logs instead, usefull as first check of "what will this thing do" as it will register your files to the DB
+      # then you'll need to delete the data or use a different database to be able to upload to cloud
+      - APPLICATION_CLOUDPROVIDERCONFIG_TYPE=GCP
+      - APPLICATION_CLOUDPROVIDERCONFIG_PROJECTID=your-project-id-in-gcp
+      - APPLICATION_CLOUDPROVIDERCONFIG_BUCKETNAME=your-bucket-name-in-gcp
+      - APPLICATION_CLOUDPROVIDERCONFIG_CREDENTIALSFILEPATH=/cloud-provider/GCP/path-to-gcp-credentials.json
+      # APPLICATION_CLOUDPROVIDERCONFIG_STORAGECLASS If not defined, will use the default class configured in the cloud bucket, you may also specify the storage class to be used when
+      # files are uploaded, possible values are oddly described below
+      # STANDARD - In GCS bucket this class has high cost of monthly storage, but objects can be accessed/deleted at no cost
+      # In GCS below classes have lower cost of monthly storage than the previous class, but objects accessing/deleting objects before a given time (see their documentation) may/will incurr in extra fees
+      # NEARLINE - ^
+      # COLDLINE - ^
+      # ARCHIVE - In GCS bucket this class has the lowest storage monthly cost but accessing/deleting objects before 1 year may/will incurr in extra fees
+      # Below configuration would directly store your objects into the coldest storage as a purely backup, this config may be removed from the compose file and use the bucket lifecycle
+      - APPLICATION_CLOUDPROVIDERCONFIG_STORAGECLASS=ARCHIVE
+      # Webhooks supported in a simple format like discord
+      - APPLICATION_NOTIFICATIONSCONFIG_URI=https://discord.com/api/webhooks/.....
+      # Webhook notifications name to be used
+      - APPLICATION_NOTIFICATIONSCONFIG_USERNAME=cloud-archiver-user
+      # Text added to the webhook message before the total uploaded files
+      - 'APPLICATION_NOTIFICATIONSCONFIG_NEWITEMSTEXT=:arrow_up: to :cloud:'
+      # Text added to the webhook message before the total deleted files
+      - 'APPLICATION_NOTIFICATIONSCONFIG_DELETEDITEMSTEXT=:arrow_down: from :cloud:'
+      # Mongo database name
+      - SPRING_DATA_MONGODB_DATABASE=your-mongo-database-name
+      # Mongo connection string to the database
+      - SPRING_DATA_MONGODB_URI=mongo-connection-string-to-the-db
+    volumes:
+      - /mnt/somedisk/immich/library/library/:/immich/library
+      - /mnt/somedisk/anotherlocation/:/anotherlocation
+      # The folder /cloud-provider/ must have the Google .json key file generated on the google cloud console
+      - /mnt/someotherdisk/cloud-provider/:/cloud-provider/GCP/
+    ports:
+      # Will be addding rest endpoints here like /sync-now or similar
+      - 8080:8080 # RestAPI /DO NOT USE THIS YET AS CURRENT IMPL PERFORMS LOTS OF BUCKET OPERATIONS AND YOU WILL INCURR IN FEES
+    restart: unless-stopped
