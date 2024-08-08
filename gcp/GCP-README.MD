@@ -17,7 +17,7 @@ A bucket is the place where all the archived files will be stored in the GCS Clo
 
 - Fill the required data, the bucket name must be unique all over the world (GCS world)
 - To store your data, you can choose a specific region, I personally choosed us-central1 (iowa) as it gives 5GB monthly for free, so for dev sake I'll only use less than 5 GB
-- Storage class, being the intention of this project merely a backup for your self-hosted data I'd suggest using *Archive* class which is the lower cost of monthly storage (but also the highest cost and slower retrieval), but of course it's up to you based on your understanding of the different storage classes
+- Storage class, being the intention of this project merely a backup for your self-hosted data I'd suggest using *Standard* during some days (just in case you still moving/deleting files) class and setup a lifecycle that transforms your files after some days from *Standard* to *Archive* which is the lower cost of monthly storage (but also the highest cost and slower retrieval), but of course it's up to you based on your understanding of the different storage classes
 - Public access, I personally prevent it as it is my personal data.
 
 ### Create Service Account (IAM) and Keys
