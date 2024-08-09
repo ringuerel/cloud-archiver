@@ -11,7 +11,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.homelab.ringue.cloud.archiver.config.ApplicationProperties;
 import com.homelab.ringue.cloud.archiver.domain.FileCatalogItem;
 import com.homelab.ringue.cloud.archiver.service.FileCatalogService;
 
@@ -21,12 +20,10 @@ import com.homelab.ringue.cloud.archiver.service.FileCatalogService;
 public class FileCatalogController {
 
     private FileCatalogService fileCatalogService;
-    private ApplicationProperties applicationProperties;
 
     @Autowired
-    public FileCatalogController(FileCatalogService fileCatalogService, ApplicationProperties applicationProperties){
+    public FileCatalogController(FileCatalogService fileCatalogService){
         this.fileCatalogService = fileCatalogService;
-        this.applicationProperties = applicationProperties;
     }
 
     @GetMapping
@@ -34,9 +31,8 @@ public class FileCatalogController {
         return fileCatalogService.findByFileNameContains(fileName);
     }
 
-    @PostMapping("/reconcile")
+    @PostMapping("/sync")
     public ResponseEntity<Void> performReconcile(){
-        applicationProperties.getScanFolders().stream().forEach(fileCatalogService::performReconcile);
-        return ResponseEntity.accepted().build();
+        throw new UnsupportedOperationException("Will be available in future versions");
     }
 }
