@@ -64,4 +64,4 @@ Current supported cloud providers and how to configure the needed objects:
 
 # Support this guy
 
-Any support will be of course appreciated, I created this [buy me a coffee](https://www.buymeacoffee.com/ringuerel) Which will be used in storage time instead ;), any support messages/ideas will do as good.
+Any support will be of course appreciated, (In fact I did not end the setup for support...but still get ideas) , any support messages/ideas will do as good.
