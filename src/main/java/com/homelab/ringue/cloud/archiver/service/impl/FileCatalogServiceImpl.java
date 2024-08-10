@@ -84,12 +84,14 @@ public class FileCatalogServiceImpl implements FileCatalogService{
 
     @Override
     public void performLocationSync(ScanLocationConfig scanlocationconfig) throws CloudBackupException {
+        notificationService.notifyInfoMessage(String.format("Started backup for %s location", scanlocationconfig.getScanFolder()));
         startCloudBackup(scanlocationconfig);
         int updloadCount = catalogCount.get();
         long uploadSize = catalogSize.get();
         int deleteCount = 0;
         long deleteSize = 0;
         if(scanlocationconfig.isCleanRemovedFromCloud()){
+            notificationService.notifyInfoMessage(String.format("Started cleanup for %s location", scanlocationconfig.getScanFolder()));
             startCloudCleanup(scanlocationconfig);
             deleteCount = catalogCount.get();
             deleteSize = catalogSize.get();
@@ -107,18 +109,21 @@ public class FileCatalogServiceImpl implements FileCatalogService{
     }
 
     private void addSummaryEntry(int uploadCount, long uploadSize, int deleteCount, long deleteSize, ScanLocationConfig scanlocationconfig) {
-        if(uploadCount == 0 && deleteCount == 0){
-            //No summary is persisted
-            return;
-        }
         // Format LocalDate as a string with the desired format
         String summaryId = Instant.now().atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("MM-dd-yyyy"));
         SyncSummaryItem currentSyncSummaryItem = new SyncSummaryItem(summaryId, uploadCount, uploadSize, deleteCount, deleteSize,Instant.now());
-        SyncSummaryItem existingSyncSummary = syncSummaryRepository.findById(summaryId).orElseGet(()-> new SyncSummaryItem(summaryId, 0, 0, 0, 0,Instant.now()));
-        SyncSummaryItem savedSummary = syncSummaryRepository.save(new SyncSummaryItem(summaryId, existingSyncSummary.uploadCount() + currentSyncSummaryItem.uploadCount(), existingSyncSummary.uploadSize() + currentSyncSummaryItem.uploadSize(),
-        existingSyncSummary.deleteCount() + currentSyncSummaryItem.deleteCount(), existingSyncSummary.deleteSize() + currentSyncSummaryItem.deleteSize(),Instant.now()));
-        notificationService.notifySummary(currentSyncSummaryItem,scanlocationconfig);
-        log.info("Daily Sync summary {} for {}",savedSummary,scanlocationconfig.getScanFolder());
+        try{
+            if(uploadCount == 0 && deleteCount == 0){
+                //No summary is persisted
+                return;
+            }    
+            SyncSummaryItem existingSyncSummary = syncSummaryRepository.findById(summaryId).orElseGet(()-> new SyncSummaryItem(summaryId, 0, 0, 0, 0,Instant.now()));
+            SyncSummaryItem savedSummary = syncSummaryRepository.save(new SyncSummaryItem(summaryId, existingSyncSummary.uploadCount() + currentSyncSummaryItem.uploadCount(), existingSyncSummary.uploadSize() + currentSyncSummaryItem.uploadSize(),
+            existingSyncSummary.deleteCount() + currentSyncSummaryItem.deleteCount(), existingSyncSummary.deleteSize() + currentSyncSummaryItem.deleteSize(),Instant.now()));
+            log.info("Daily Sync summary {} for {}",savedSummary,scanlocationconfig.getScanFolder());
+        }finally{
+            notificationService.notifySummary(currentSyncSummaryItem,scanlocationconfig);
+        }
     }
 
     private void startCloudCleanup(ScanLocationConfig locationConfig) throws CloudBackupException{
@@ -138,9 +143,9 @@ public class FileCatalogServiceImpl implements FileCatalogService{
             Date since = Date.from(Instant.now().minus(Duration.ofDays(locationConfig.getStandardDeleteDaysLimit())));
             Date olderThan = Date.from(Instant.now().minus(Duration.ofDays(locationConfig.getArchiveDeleteDaysHold() + locationConfig.getStandardDeleteDaysLimit())));
             log.debug("{} will check for imports since {} or older than {}",locationConfig.getScanFolder(),since,olderThan);
-            catalogEntriesByPages = fileCatalogItemRepository.findByParentFolderAndArchiveDateAfterOrParentFolderAndArchiveDateBefore(rootFolder,since,rootFolder,olderThan,catalogPages);
+            catalogEntriesByPages = fileCatalogItemRepository.findByParentFolderStartsWithAndArchiveDateAfterOrParentFolderStartsWithAndArchiveDateBefore(rootFolder,since,rootFolder,olderThan,catalogPages);
         }else{
-            catalogEntriesByPages = fileCatalogItemRepository.findByParentFolder(rootFolder,catalogPages);
+            catalogEntriesByPages = fileCatalogItemRepository.findByParentFolderStartsWith(rootFolder,catalogPages);
         }
         log.trace("Total results: {} Processing batch {}/{}",catalogEntriesByPages.getTotalElements(),catalogEntriesByPages.getNumber(),catalogEntriesByPages.getTotalPages());
         processCatalogEntryForCleanup(catalogEntriesByPages.getContent().parallelStream());
@@ -202,8 +207,8 @@ public class FileCatalogServiceImpl implements FileCatalogService{
 
     private void putCollectionIdsInMemoryCache(ScanLocationConfig locationConfig, Pageable pageRequest, Map<String, FileCatalogItem> catalogItemsKeys) {
         String rootFolder = fixLocationPath(locationConfig.getScanFolder());
-        Page<FileCatalogItem> archivedCatalogItems = fileCatalogItemRepository.findByParentFolder(rootFolder,pageRequest);
-        log.trace("Got documents {} for collection",archivedCatalogItems.getTotalElements());
+        Page<FileCatalogItem> archivedCatalogItems = fileCatalogItemRepository.findByParentFolderStartsWith(rootFolder,pageRequest);
+        log.trace("Got documents {} for collection from rootFolder {}",archivedCatalogItems.getTotalElements(),rootFolder);
         archivedCatalogItems.getContent().parallelStream().forEach(fileCatalogItem -> catalogItemsKeys.put(fileCatalogItem.absolutePath(),fileCatalogItem));
         if((archivedCatalogItems.hasNext())){
             log.trace("Pageable {}/{}",pageRequest.getPageSize(),pageRequest.getPageNumber());

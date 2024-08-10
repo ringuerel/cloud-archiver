@@ -36,6 +36,7 @@ import com.homelab.ringue.cloud.archiver.exception.CloudBackupException;
 import com.homelab.ringue.cloud.archiver.repository.FileCatalogItemRepository;
 import com.homelab.ringue.cloud.archiver.repository.SyncSummaryRepository;
 import com.homelab.ringue.cloud.archiver.service.FileCatalogItemMapper;
+import com.homelab.ringue.cloud.archiver.service.NotificationService;
 
 public class FileCatalogServiceImplTest {
 
@@ -72,6 +73,9 @@ public class FileCatalogServiceImplTest {
     private CloudProviderFactory cloudProviderFactory;
 
     @Mock
+    private NotificationService notificationService;
+
+    @Mock
     private CloudProvider cloudProvider;
 
     @BeforeEach
@@ -81,7 +85,7 @@ public class FileCatalogServiceImplTest {
         Mockito.when(applicationProperties.getCloudProviderConfig()).thenReturn(cloudProviderConfig);
         Mockito.when(cloudProviderConfig.getType()).thenReturn(CloudProviders.NO_PROVIDER);
         Mockito.when(cloudProviderFactory.getCloudProvider(Mockito.any())).thenReturn(cloudProvider);
-        Mockito.when(fileCatalogItemRepository.findByParentFolder(Mockito.anyString(),Mockito.any())).thenReturn(fileCatalogPageMock);
+        Mockito.when(fileCatalogItemRepository.findByParentFolderStartsWith(Mockito.anyString(),Mockito.any())).thenReturn(fileCatalogPageMock);
     }
 
 
@@ -110,8 +114,9 @@ public class FileCatalogServiceImplTest {
                        .thenReturn(mockStream);
             serviceImplSpy.performLocationSync(scanLocationConfigMock);
         }
-        Mockito.verify(fileCatalogItemRepository,Mockito.times(cleanRemovedFromCloud?2:1)).findByParentFolder(Mockito.anyString(),Mockito.any());
+        Mockito.verify(fileCatalogItemRepository,Mockito.times(cleanRemovedFromCloud?2:1)).findByParentFolderStartsWith(Mockito.anyString(),Mockito.any());
         Mockito.verify(serviceImplSpy).processFileStreamForBackup(Mockito.any(),Mockito.any(),Mockito.any());
+        Mockito.verify(notificationService,Mockito.times(cleanRemovedFromCloud?2:1)).notifyInfoMessage(Mockito.anyString());
     }
 
 
