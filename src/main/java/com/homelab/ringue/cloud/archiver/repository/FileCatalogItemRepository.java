@@ -15,7 +15,8 @@ import com.homelab.ringue.cloud.archiver.domain.FileCatalogItem;
 public interface FileCatalogItemRepository extends MongoRepository<FileCatalogItem,String>{
     Optional<FileCatalogItem> findById(String absolutePath);
     List<FileCatalogItem> findByFileNameContains(String fileName);
-    Page<FileCatalogItem> findByParentFolder(String parentFolder,Pageable pageable);
-    Page<FileCatalogItem> findByParentFolderAndArchiveDateAfterOrParentFolderAndArchiveDateBefore(
+    //Must use startsWith in order to be able to provide rootFolder and childs/childs/childs
+    Page<FileCatalogItem> findByParentFolderStartsWith(String parentFolder,Pageable pageable);
+    Page<FileCatalogItem> findByParentFolderStartsWithAndArchiveDateAfterOrParentFolderStartsWithAndArchiveDateBefore(
             String rootFolder, Date since, String rootFolder2, Date olderThan, Pageable catalogPages);
 }

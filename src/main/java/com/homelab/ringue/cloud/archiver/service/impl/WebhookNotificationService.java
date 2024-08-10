@@ -67,7 +67,17 @@ public class WebhookNotificationService implements NotificationService{
         if(notificationsConfig == null){
             return;
         }
+        //TODO: Make prefix configurable
         sendWebhookMessage(":x: "+message);
+    }
+
+    @Override
+    public void notifyInfoMessage(String message) {
+        if(notificationsConfig == null){
+            return;
+        }
+        //TODO: Make prefix configurable
+        sendWebhookMessage(":information_source: "+message);
     }
 
 }

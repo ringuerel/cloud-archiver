@@ -9,4 +9,6 @@ public interface NotificationService {
 
     void notifyError(String message);
 
+    void notifyInfoMessage(String message);
+
 }
