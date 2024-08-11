@@ -10,5 +10,7 @@ public interface NotificationService {
     void notifyError(String message);
 
     void notifyInfoMessage(String message);
+    
+    void sendMessageFromTemplate(String messageTemplate, SyncSummaryItem syncSummaryItem,ScanLocationConfig scanlocationconfig);
 
 }
