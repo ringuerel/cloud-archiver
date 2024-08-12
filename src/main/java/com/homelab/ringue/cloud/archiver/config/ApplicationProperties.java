@@ -47,13 +47,14 @@ public class ApplicationProperties {
         public static final String DELETED_COUNT = "DELETED_COUNT";
         public static final String DELETED_SIZE = "DELETED_SIZE";
         public static final String SCAN_LOCATION = "SCAN_LOCATION";
+        public static final String DEFAULT_INFO_PREFIX = "INFO: ";
+        public static final String DEFAULT_ERROR_PREFIX = "ERROR: ";
         private static final String DEFAULT_SUMMARY_TEMPLATE = SCAN_LOCATION+" imported "+IMPORTED_COUNT+" size "+IMPORTED_SIZE+", deleted "+DELETED_COUNT+" size "+DELETED_SIZE;
         private URI uri;
         private String userName;
-        private String newItemsText;
-        private String deletedItemsText;
         private String summaryTemplateText;
-
+        private String infoPrefix;
+        private String errorPRefix;
         public String getSummaryTemplateText(){
             return Optional.ofNullable(summaryTemplateText).orElse(DEFAULT_SUMMARY_TEMPLATE);
         }

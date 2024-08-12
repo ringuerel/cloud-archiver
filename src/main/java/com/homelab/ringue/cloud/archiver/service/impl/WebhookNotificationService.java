@@ -8,7 +8,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
 
 import com.homelab.ringue.cloud.archiver.config.ApplicationProperties;
 import com.homelab.ringue.cloud.archiver.config.ApplicationProperties.NotificationsConfig;
@@ -39,7 +38,7 @@ public class WebhookNotificationService implements NotificationService{
         private String content;
     }
 
-    public static String humanReadableByteCountSI(long bytes) {
+    String humanReadableByteCountSI(long bytes) {
         if (-1000 < bytes && bytes < 1000) {
             return bytes + " B";
         }
@@ -59,7 +58,7 @@ public class WebhookNotificationService implements NotificationService{
         sendMessageFromTemplate(notificationsConfig.getSummaryTemplateText(), summary, scanlocationconfig);
     }
 
-    protected void sendWebhookMessage(String webhookMessage){
+    void sendWebhookMessage(String webhookMessage){
         WebhookPayload payload = new WebhookPayload();
         payload.setUsername(notificationsConfig.getUserName());
         log.debug("About to send webhook message {}",webhookMessage);
@@ -68,25 +67,22 @@ public class WebhookNotificationService implements NotificationService{
     }
 
     @Override
-    public void notifyError(String message) {
+    public void notifyError(String message,ScanLocationConfig scanLocationConfig) {
         if(notificationsConfig == null){
             return;
         }
-        //TODO: Make prefix configurable
-        sendWebhookMessage(":x: "+message);
+        sendMessageFromTemplate(Optional.ofNullable(notificationsConfig.getErrorPRefix()).orElse(ApplicationProperties.NotificationsConfig.DEFAULT_ERROR_PREFIX)+ApplicationProperties.NotificationsConfig.SCAN_LOCATION+": "+message,null,scanLocationConfig);
     }
 
     @Override
-    public void notifyInfoMessage(String message) {
+    public void notifyInfoMessage(String message,ScanLocationConfig scanLocationConfig) {
         if(notificationsConfig == null){
             return;
         }
-        //TODO: Make prefix configurable
-        sendWebhookMessage(":information_source: "+message);
+        sendMessageFromTemplate(Optional.ofNullable(notificationsConfig.getInfoPrefix()).orElse(ApplicationProperties.NotificationsConfig.DEFAULT_INFO_PREFIX)+ApplicationProperties.NotificationsConfig.SCAN_LOCATION+": "+message,null,scanLocationConfig);
     }
 
-    @Override
-    public void sendMessageFromTemplate(String messageTemplate, SyncSummaryItem syncSummaryItem,ScanLocationConfig scanlocationconfig) {
+    void sendMessageFromTemplate(String messageTemplate, SyncSummaryItem syncSummaryItem,ScanLocationConfig scanlocationconfig) {
         sendWebhookMessage(replaceMessageInTemplate(messageTemplate,syncSummaryItem,scanlocationconfig));
     }
 
