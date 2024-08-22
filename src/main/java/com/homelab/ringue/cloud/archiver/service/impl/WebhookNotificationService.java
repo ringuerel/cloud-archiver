@@ -71,7 +71,7 @@ public class WebhookNotificationService implements NotificationService{
         if(notificationsConfig == null){
             return;
         }
-        sendMessageFromTemplate(Optional.ofNullable(notificationsConfig.getErrorPRefix()).orElse(ApplicationProperties.NotificationsConfig.DEFAULT_ERROR_PREFIX)+ApplicationProperties.NotificationsConfig.SCAN_LOCATION+": "+message,null,scanLocationConfig);
+        sendMessageFromTemplate(Optional.ofNullable(notificationsConfig.getErrorPrefix()).orElse(ApplicationProperties.NotificationsConfig.DEFAULT_ERROR_PREFIX)+ApplicationProperties.NotificationsConfig.SCAN_LOCATION+": "+message,null,scanLocationConfig);
     }
 
     @Override

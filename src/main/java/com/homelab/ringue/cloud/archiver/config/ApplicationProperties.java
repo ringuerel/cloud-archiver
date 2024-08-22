@@ -54,7 +54,7 @@ public class ApplicationProperties {
         private String userName;
         private String summaryTemplateText;
         private String infoPrefix;
-        private String errorPRefix;
+        private String errorPrefix;
         public String getSummaryTemplateText(){
             return Optional.ofNullable(summaryTemplateText).orElse(DEFAULT_SUMMARY_TEMPLATE);
         }
