@@ -23,7 +23,7 @@ WORKDIR /app
 RUN chown -R cloud-archiver:cloud-archiver /app
 
 # Copy your Java application JAR file into the container
-COPY ./cloud-archiver-0.9.9.002.jar /app/cloud-archiver.jar
+COPY ./cloud-archiver-0.9.9.003-configurable-webhook-notifications-SNAPSHOT.jar /app/cloud-archiver.jar
 COPY ./application.yml /app/applicaiton.yml
 
 EXPOSE 8080

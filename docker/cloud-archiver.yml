@@ -2,7 +2,7 @@
 version: "3"
 services:
   syncthing:
-    image: ringuerel/cloud-archiver:0.9.8
+    image: ringuerel/cloud-archiver:0.9.9.002
     container_name: cloudarchiver
     hostname: cloudarchiver
     environment:
@@ -64,10 +64,14 @@ services:
       - APPLICATION_NOTIFICATIONSCONFIG_URI=https://discord.com/api/webhooks/.....
       # Webhook notifications name to be used
       - APPLICATION_NOTIFICATIONSCONFIG_USERNAME=cloud-archiver-user
-      # Text added to the webhook message before the total uploaded files
-      - 'APPLICATION_NOTIFICATIONSCONFIG_NEWITEMSTEXT=:arrow_up: to :cloud:'
-      # Text added to the webhook message before the total deleted files
-      - 'APPLICATION_NOTIFICATIONSCONFIG_DELETEDITEMSTEXT=:arrow_down: from :cloud:'
+      # Template of the text sent once sync is completed per location, bellow described words are usable as variables in the template
+      # - IMPORTED_COUNT will be replaced with the total count of uploads
+      # - IMPORTED_SIZE will be replaced with the sum of sizes of the uploaded files to the cloud bucket
+      # - DELETED_COUNT will be replaced with the total count of files deleted from cloud bucket
+      # - DELETED_SIZE will be replaced with the sum of sizes of deleted from cloud bucket files
+      # - SCAN_LOCATION will be replaced with the configured scan location for which the sync process produced the message
+      # This example uses all variables
+      - 'APPLICATION_NOTIFICATIONSCONFIG_SUMMARYTEMPLATETEXT=SCAN_LOCATION uploads: IMPORTED_COUNT (IMPORTED_SIZE), downloads: DELETED_COUNT (DELETED_SIZE)'
       # Mongo database name
       - SPRING_DATA_MONGODB_DATABASE=your-mongo-database-name
       # Mongo connection string to the database

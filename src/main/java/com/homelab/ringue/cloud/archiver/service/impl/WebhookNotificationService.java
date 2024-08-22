@@ -2,10 +2,12 @@ package com.homelab.ringue.cloud.archiver.service.impl;
 
 import java.text.CharacterIterator;
 import java.text.StringCharacterIterator;
+import java.util.Optional;
 
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
 
 import com.homelab.ringue.cloud.archiver.config.ApplicationProperties;
 import com.homelab.ringue.cloud.archiver.config.ApplicationProperties.NotificationsConfig;
@@ -22,9 +24,12 @@ import lombok.extern.slf4j.Slf4j;
 public class WebhookNotificationService implements NotificationService{
 
     private NotificationsConfig notificationsConfig;
+    private RestTemplateBuilder restTemplateBuilder;
 
-    public WebhookNotificationService(ApplicationProperties applicationProperties){
+    @Autowired
+    public WebhookNotificationService(ApplicationProperties applicationProperties,RestTemplateBuilder restTemplateBuilder){
         this.notificationsConfig = applicationProperties.getNotificationsConfig();
+        this.restTemplateBuilder = restTemplateBuilder;
     }
 
     @Data
@@ -33,7 +38,7 @@ public class WebhookNotificationService implements NotificationService{
         private String content;
     }
 
-    public static String humanReadableByteCountSI(long bytes) {
+    String humanReadableByteCountSI(long bytes) {
         if (-1000 < bytes && bytes < 1000) {
             return bytes + " B";
         }
@@ -50,34 +55,47 @@ public class WebhookNotificationService implements NotificationService{
         if(notificationsConfig == null){
             return;
         }
-        sendWebhookMessage(String.format("%s\n%s %d files for %s\n%s %d files for %s",scanlocationconfig.getScanFolder(),notificationsConfig.getNewItemsText(),summary.uploadCount(),humanReadableByteCountSI(summary.uploadSize()), notificationsConfig.getDeletedItemsText(),summary.deleteCount(),humanReadableByteCountSI(summary.deleteSize())));
+        sendMessageFromTemplate(notificationsConfig.getSummaryTemplateText(), summary, scanlocationconfig);
     }
 
-    private void sendWebhookMessage(String webhookMessage){
+    void sendWebhookMessage(String webhookMessage){
         WebhookPayload payload = new WebhookPayload();
         payload.setUsername(notificationsConfig.getUserName());
         log.debug("About to send webhook message {}",webhookMessage);
         payload.setContent(webhookMessage);
-        RestTemplate restTemplate = new RestTemplate();
-        restTemplate.postForEntity(notificationsConfig.getUri(), payload, String.class);
+        restTemplateBuilder.build().postForEntity(notificationsConfig.getUri(), payload, String.class);
     }
 
     @Override
-    public void notifyError(String message) {
+    public void notifyError(String message,ScanLocationConfig scanLocationConfig) {
         if(notificationsConfig == null){
             return;
         }
-        //TODO: Make prefix configurable
-        sendWebhookMessage(":x: "+message);
+        sendMessageFromTemplate(Optional.ofNullable(notificationsConfig.getErrorPrefix()).orElse(ApplicationProperties.NotificationsConfig.DEFAULT_ERROR_PREFIX)+ApplicationProperties.NotificationsConfig.SCAN_LOCATION+": "+message,null,scanLocationConfig);
     }
 
     @Override
-    public void notifyInfoMessage(String message) {
+    public void notifyInfoMessage(String message,ScanLocationConfig scanLocationConfig) {
         if(notificationsConfig == null){
             return;
         }
-        //TODO: Make prefix configurable
-        sendWebhookMessage(":information_source: "+message);
+        sendMessageFromTemplate(Optional.ofNullable(notificationsConfig.getInfoPrefix()).orElse(ApplicationProperties.NotificationsConfig.DEFAULT_INFO_PREFIX)+ApplicationProperties.NotificationsConfig.SCAN_LOCATION+": "+message,null,scanLocationConfig);
+    }
+
+    void sendMessageFromTemplate(String messageTemplate, SyncSummaryItem syncSummaryItem,ScanLocationConfig scanlocationconfig) {
+        sendWebhookMessage(replaceMessageInTemplate(messageTemplate,syncSummaryItem,scanlocationconfig));
+    }
+
+    protected String replaceMessageInTemplate(String messageTemplate, SyncSummaryItem syncSummaryItem,
+            ScanLocationConfig scanlocationconfig) {
+                Optional<String> replacedResult = Optional.ofNullable(syncSummaryItem).map(syncSummary->{
+                    String result = messageTemplate.replace(ApplicationProperties.NotificationsConfig.IMPORTED_COUNT, String.valueOf(syncSummary.uploadCount()))
+                    .replace(ApplicationProperties.NotificationsConfig.IMPORTED_SIZE, humanReadableByteCountSI(syncSummary.uploadSize()))
+                    .replace(ApplicationProperties.NotificationsConfig.DELETED_COUNT, String.valueOf(syncSummary.deleteCount()))
+                    .replace(ApplicationProperties.NotificationsConfig.DELETED_SIZE, humanReadableByteCountSI(syncSummary.deleteSize()));
+                    return result;
+                });
+        return replacedResult.orElse(messageTemplate).replace(ApplicationProperties.NotificationsConfig.SCAN_LOCATION, scanlocationconfig.getScanFolder());
     }
 
 }

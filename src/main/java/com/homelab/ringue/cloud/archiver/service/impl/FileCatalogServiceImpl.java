@@ -84,14 +84,14 @@ public class FileCatalogServiceImpl implements FileCatalogService{
 
     @Override
     public void performLocationSync(ScanLocationConfig scanlocationconfig) throws CloudBackupException {
-        notificationService.notifyInfoMessage(String.format("Started backup for %s location", scanlocationconfig.getScanFolder()));
+        notificationService.notifyInfoMessage("Started backup process", scanlocationconfig);
         startCloudBackup(scanlocationconfig);
         int updloadCount = catalogCount.get();
         long uploadSize = catalogSize.get();
         int deleteCount = 0;
         long deleteSize = 0;
         if(scanlocationconfig.isCleanRemovedFromCloud()){
-            notificationService.notifyInfoMessage(String.format("Started cleanup for %s location", scanlocationconfig.getScanFolder()));
+            notificationService.notifyInfoMessage("Started cleanup process", scanlocationconfig);
             startCloudCleanup(scanlocationconfig);
             deleteCount = catalogCount.get();
             deleteSize = catalogSize.get();
@@ -177,7 +177,7 @@ public class FileCatalogServiceImpl implements FileCatalogService{
             processFileStreamForBackup(locationConfig, collectionIdsInMemoryCache, filesList);
         } catch (Exception e) {
             log.error("Failed processing {} for cloud backup",locationConfig, e);
-            notificationService.notifyError("Error during cloud backup "+locationConfig+" "+e.getMessage());
+            notificationService.notifyError("Error during cloud backup:"+e.getMessage(),locationConfig);
             throw new CloudBackupException(locationConfig.getScanFolder(),e);
         }
         log.debug("Finished with backup process: {}",locationConfig.getScanFolder());
@@ -249,7 +249,9 @@ public class FileCatalogServiceImpl implements FileCatalogService{
             catalogSize.addAndGet(fileCatalogItem.fileSize());
         } catch (Exception e) {
             log.error("Failed to upload {} to the cloud provider",fileCatalogItem.absolutePath(), e);
-            notificationService.notifyError("Failed to upload "+fileCatalogItem.absolutePath()+" "+e.getMessage());
+            ScanLocationConfig fileLocationConfig = new ScanLocationConfig();
+            fileLocationConfig.setScanFolder(fileCatalogItem.absolutePath());
+            notificationService.notifyError("Failed to upload "+e.getMessage(),fileLocationConfig);
         }
     }
 
