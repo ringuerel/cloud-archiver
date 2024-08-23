@@ -191,18 +191,30 @@ public class FileCatalogServiceImpl implements FileCatalogService{
         .filter(Objects::nonNull)
         .filter(fileCatalogItem -> this.applyFilteringRules(locationConfig,fileCatalogItem))
         .filter(importingFileCatalogItem -> !importingFileCatalogItem.isDirectory())
-        .map(this::getCrC32CPopulatedItem)
+        .map(fileOnDisk-> getFileToProcessIfAny(collectionIdsInMemoryCache, fileOnDisk))
         .filter(Objects::nonNull)//Filters out null again due to crc32c failures will return null
-        .filter(importingFileCatalogItem -> {
-            boolean isNewItemToIndex = !collectionIdsInMemoryCache.containsKey(importingFileCatalogItem.absolutePath());
-            if(!isNewItemToIndex){
-                FileCatalogItem indexedCatalogItem = collectionIdsInMemoryCache.remove(importingFileCatalogItem.absolutePath());
-                //If crc32c is not equal then file changed and needs to be updated
-                return !indexedCatalogItem.crc32c().equals(importingFileCatalogItem.crc32c());
-            }
-            return true;
-        })
         .forEach(this::performCloudBackup);
+    }
+
+    FileCatalogItem getFileToProcessIfAny(Map<String, FileCatalogItem> collectionIdsInMemoryCache,
+            FileCatalogItem fileOnDisk) {
+        System.out.println("FileOnDisk "+fileOnDisk+" Map "+collectionIdsInMemoryCache);
+        Optional<FileCatalogItem> fileCatalogItem = Optional.ofNullable(collectionIdsInMemoryCache.remove(fileOnDisk.absolutePath()));
+        boolean isModifiedOrNewItemItem = true;
+        if(fileCatalogItem.isPresent()){
+            // Leaves empty CrC32 field to be filtered out when disk modification date is the same as indexed catalog (DB) date
+            isModifiedOrNewItemItem = !fileCatalogItem.get().lastModified().isEqual(fileOnDisk.lastModified());
+            return null;
+        }
+        if(isModifiedOrNewItemItem){
+            fileOnDisk = getCrC32CPopulatedItem(fileOnDisk);
+            if(fileCatalogItem.isPresent() && fileOnDisk != null && fileOnDisk.crc32c().equals(fileCatalogItem.get().crc32c())){
+                //Empty CrC32 so that it gets filtered out as it has not changed in comparison with the remote indexed instance
+                fileOnDisk = fileCatalogItemMapper.mapFromFileCatalogItemUpdateCheckSum(fileOnDisk, null);
+                return null;
+            }
+        }
+        return fileOnDisk;
     }
 
     private void putCollectionIdsInMemoryCache(ScanLocationConfig locationConfig, Pageable pageRequest, Map<String, FileCatalogItem> catalogItemsKeys) {
