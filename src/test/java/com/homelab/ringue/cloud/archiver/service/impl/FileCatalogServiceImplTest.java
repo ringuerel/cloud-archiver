@@ -1,5 +1,6 @@
 package com.homelab.ringue.cloud.archiver.service.impl;
 
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mockStatic;
@@ -179,8 +180,8 @@ public class FileCatalogServiceImplTest {
     }
 
     @ParameterizedTest
-    @MethodSource("emptyCrcArgs")
-    void getFileToProcessIfAnyshouldReturnEmptyCrC(Map<String, FileCatalogItem> collectionIdsInMemoryCache,FileCatalogItem fileCatalogItem) throws IOException{
+    @MethodSource("existingAndUnmodifiedItems")
+    void getFileToProcessIfAnyshouldReturnNullWhenUnmodified(Map<String, FileCatalogItem> collectionIdsInMemoryCache,FileCatalogItem fileCatalogItem) throws IOException{
         Mockito.doReturn(fileCatalogItem).when(serviceImplSpy).getCrC32CPopulatedItem(fileCatalogItem);
         //Returns smething with null crc32
         Mockito.when(fileCatalogItemMapper.mapFromFileCatalogItemUpdateCheckSum(fileCatalogItem, null)).thenReturn(new FileCatalogItem(CRC32C, CRC32C, CRC32C, TEST_SCAN_FOLDER, false, null, null, null, null));
@@ -188,16 +189,38 @@ public class FileCatalogServiceImplTest {
         assertNull(fileToProcessIfAny);
     }
 
-    static Stream<? extends Arguments> emptyCrcArgs() {
+    @ParameterizedTest
+    @MethodSource("newAndModifiedItems")
+    void getFileToProcessIfAnyshouldReturnFileItemWhenNewOrModifiedFile(Map<String, FileCatalogItem> collectionIdsInMemoryCache,FileCatalogItem fileCatalogItem) throws IOException{
+        //Returns new CRC32
+        Mockito.doReturn(new FileCatalogItem(fileCatalogItem.absolutePath(), fileCatalogItem.fileName(), fileCatalogItem.fileExtension(), fileCatalogItem.parentFolder(), false, null, null, CRC32C+"NEW", null)).when(serviceImplSpy).getCrC32CPopulatedItem(fileCatalogItem);
+        //Mockito.when(fileCatalogItemMapper.mapFromFileCatalogItemUpdateCheckSum(Mockito.eq(fileCatalogItem), Mockito.anyString())).thenReturn(new FileCatalogItem(CRC32C, CRC32C, CRC32C, TEST_SCAN_FOLDER, false, null, null, null, null));
+        FileCatalogItem fileToProcessIfAny = serviceImplSpy.getFileToProcessIfAny(new HashMap<>(collectionIdsInMemoryCache), fileCatalogItem);
+        assertNotNull(fileToProcessIfAny);
+    }
+
+    static Stream<? extends Arguments> existingAndUnmodifiedItems() {
         FileCatalogItem existingUnModifiedFile = new FileCatalogItem(TEST_SCAN_FOLDER+"/someFile1.jpg", "someFile1.jpg", "jpg", TEST_SCAN_FOLDER, false, 50L, null,null,LocalDateTime.of(1999, 1, 1, 20, 22));
-        FileCatalogItem existingPreviousVerion = new FileCatalogItem(TEST_SCAN_FOLDER+"/someFile.jpg", "someFile.jpg", "jpg", TEST_SCAN_FOLDER, false, 50L, null,CRC32C,LocalDateTime.of(1999, 1, 1, 20, 22));
+        FileCatalogItem existingPreviousVersion = new FileCatalogItem(TEST_SCAN_FOLDER+"/someFile.jpg", "someFile.jpg", "jpg", TEST_SCAN_FOLDER, false, 50L, null,CRC32C,LocalDateTime.of(1999, 1, 1, 20, 22));
         FileCatalogItem existingUnModifiedFileButChangeDate = new FileCatalogItem(TEST_SCAN_FOLDER+"/someFile.jpg", "someFile.jpg", "jpg", TEST_SCAN_FOLDER, false, 50L, null,CRC32C,LocalDateTime.of(1999, 1, 1, 20, 23));
         Map<String, FileCatalogItem> inMemmoryItems = new HashMap<>();
         inMemmoryItems.put(existingUnModifiedFile.absolutePath(), existingUnModifiedFile);
-        inMemmoryItems.put(existingPreviousVerion.absolutePath(), existingPreviousVerion);
+        inMemmoryItems.put(existingPreviousVersion.absolutePath(), existingPreviousVersion);
         return Stream.of(
           Arguments.of(inMemmoryItems,existingUnModifiedFile),
           Arguments.of(inMemmoryItems,existingUnModifiedFileButChangeDate)
+        );
+    }
+
+    static Stream<? extends Arguments> newAndModifiedItems() {
+        FileCatalogItem newItem = new FileCatalogItem(TEST_SCAN_FOLDER+"/someNewFile.jpg", "someNewFile.jpg", "jpg", TEST_SCAN_FOLDER, false, 50L, null,null,LocalDateTime.of(1999, 1, 1, 20, 22));
+        FileCatalogItem existingPreviousVersion = new FileCatalogItem(TEST_SCAN_FOLDER+"/someFile.jpg", "someFile.jpg", "jpg", TEST_SCAN_FOLDER, false, 50L, null,CRC32C,LocalDateTime.of(1999, 1, 1, 20, 22));
+        FileCatalogItem modifiedVersion = new FileCatalogItem(TEST_SCAN_FOLDER+"/someFile.jpg", "someFile.jpg", "jpg", TEST_SCAN_FOLDER, false, 50L, null,null,LocalDateTime.of(1999, 1, 1, 20, 23));
+        Map<String, FileCatalogItem> inMemmoryItems = new HashMap<>();
+        inMemmoryItems.put(existingPreviousVersion.absolutePath(), existingPreviousVersion);
+        return Stream.of(
+          Arguments.of(inMemmoryItems,newItem),
+          Arguments.of(inMemmoryItems,modifiedVersion)
         );
     }
 

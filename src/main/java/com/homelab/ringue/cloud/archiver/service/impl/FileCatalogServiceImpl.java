@@ -198,20 +198,15 @@ public class FileCatalogServiceImpl implements FileCatalogService{
 
     FileCatalogItem getFileToProcessIfAny(Map<String, FileCatalogItem> collectionIdsInMemoryCache,
             FileCatalogItem fileOnDisk) {
-        System.out.println("FileOnDisk "+fileOnDisk+" Map "+collectionIdsInMemoryCache);
         Optional<FileCatalogItem> fileCatalogItem = Optional.ofNullable(collectionIdsInMemoryCache.remove(fileOnDisk.absolutePath()));
         boolean isModifiedOrNewItemItem = true;
-        if(fileCatalogItem.isPresent()){
-            // Leaves empty CrC32 field to be filtered out when disk modification date is the same as indexed catalog (DB) date
-            isModifiedOrNewItemItem = !fileCatalogItem.get().lastModified().isEqual(fileOnDisk.lastModified());
-            return null;
+        if(fileCatalogItem.isPresent() && fileCatalogItem.get().lastModified().isEqual(fileOnDisk.lastModified())){
+            return null;//No need to check for CRC as it is a backed up item that does not seems to have changed
         }
         if(isModifiedOrNewItemItem){
             fileOnDisk = getCrC32CPopulatedItem(fileOnDisk);
             if(fileCatalogItem.isPresent() && fileOnDisk != null && fileOnDisk.crc32c().equals(fileCatalogItem.get().crc32c())){
-                //Empty CrC32 so that it gets filtered out as it has not changed in comparison with the remote indexed instance
-                fileOnDisk = fileCatalogItemMapper.mapFromFileCatalogItemUpdateCheckSum(fileOnDisk, null);
-                return null;
+                return null;//Nothing to backup to cloud
             }
         }
         return fileOnDisk;
