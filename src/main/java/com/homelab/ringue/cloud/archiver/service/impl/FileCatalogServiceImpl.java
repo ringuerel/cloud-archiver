@@ -84,14 +84,14 @@ public class FileCatalogServiceImpl implements FileCatalogService{
 
     @Override
     public void performLocationSync(ScanLocationConfig scanlocationconfig) throws CloudBackupException {
-        notificationService.notifyInfoMessage(String.format("Started backup for %s location", scanlocationconfig.getScanFolder()));
+        notificationService.notifyInfoMessage("Started backup process", scanlocationconfig);
         startCloudBackup(scanlocationconfig);
         int updloadCount = catalogCount.get();
         long uploadSize = catalogSize.get();
         int deleteCount = 0;
         long deleteSize = 0;
         if(scanlocationconfig.isCleanRemovedFromCloud()){
-            notificationService.notifyInfoMessage(String.format("Started cleanup for %s location", scanlocationconfig.getScanFolder()));
+            notificationService.notifyInfoMessage("Started cleanup process", scanlocationconfig);
             startCloudCleanup(scanlocationconfig);
             deleteCount = catalogCount.get();
             deleteSize = catalogSize.get();
@@ -177,7 +177,7 @@ public class FileCatalogServiceImpl implements FileCatalogService{
             processFileStreamForBackup(locationConfig, collectionIdsInMemoryCache, filesList);
         } catch (Exception e) {
             log.error("Failed processing {} for cloud backup",locationConfig, e);
-            notificationService.notifyError("Error during cloud backup "+locationConfig+" "+e.getMessage());
+            notificationService.notifyError("Error during cloud backup:"+e.getMessage(),locationConfig);
             throw new CloudBackupException(locationConfig.getScanFolder(),e);
         }
         log.debug("Finished with backup process: {}",locationConfig.getScanFolder());
@@ -191,18 +191,30 @@ public class FileCatalogServiceImpl implements FileCatalogService{
         .filter(Objects::nonNull)
         .filter(fileCatalogItem -> this.applyFilteringRules(locationConfig,fileCatalogItem))
         .filter(importingFileCatalogItem -> !importingFileCatalogItem.isDirectory())
-        .map(this::getCrC32CPopulatedItem)
+        .map(fileOnDisk-> getFileToProcessIfAny(collectionIdsInMemoryCache, fileOnDisk))
         .filter(Objects::nonNull)//Filters out null again due to crc32c failures will return null
-        .filter(importingFileCatalogItem -> {
-            boolean isNewItemToIndex = !collectionIdsInMemoryCache.containsKey(importingFileCatalogItem.absolutePath());
-            if(!isNewItemToIndex){
-                FileCatalogItem indexedCatalogItem = collectionIdsInMemoryCache.remove(importingFileCatalogItem.absolutePath());
-                //If crc32c is not equal then file changed and needs to be updated
-                return !indexedCatalogItem.crc32c().equals(importingFileCatalogItem.crc32c());
-            }
-            return true;
-        })
         .forEach(this::performCloudBackup);
+        log.info("Updating metadata only for {} items on {}",collectionIdsInMemoryCache.size(),locationConfig.getScanFolder());
+        collectionIdsInMemoryCache.values().parallelStream()
+        .forEach(fileCatalogItemRepository::save);
+    }
+
+    FileCatalogItem getFileToProcessIfAny(Map<String, FileCatalogItem> collectionIdsInMemoryCache,
+            FileCatalogItem fileOnDisk) {
+        Optional<FileCatalogItem> fileCatalogItem = Optional.ofNullable(collectionIdsInMemoryCache.remove(fileOnDisk.absolutePath()));
+        boolean isModifiedOrNewItemItem = true;
+        if(fileCatalogItem.isPresent() && fileCatalogItem.get().lastModified() != null && fileCatalogItem.get().lastModified().toEpochMilli() == fileOnDisk.lastModified().toEpochMilli()){
+            return null;//No need to check for CRC as it is a backed up item that does not seems to have changed
+        }
+        if(isModifiedOrNewItemItem){
+            fileOnDisk = getCrC32CPopulatedItem(fileOnDisk);
+            if(fileCatalogItem.isPresent() && fileOnDisk != null && fileOnDisk.crc32c().equals(fileCatalogItem.get().crc32c())){
+                //Leaves updated lastModifiedDate version on the memory cache
+                collectionIdsInMemoryCache.put(fileOnDisk.absolutePath(), fileCatalogItemMapper.mapFromFileCatalogItemUpdateLastModified(fileCatalogItem.get(), fileOnDisk.lastModified()));
+                return null;//Nothing to backup to cloud
+            }
+        }
+        return fileOnDisk;
     }
 
     private void putCollectionIdsInMemoryCache(ScanLocationConfig locationConfig, Pageable pageRequest, Map<String, FileCatalogItem> catalogItemsKeys) {
@@ -249,7 +261,9 @@ public class FileCatalogServiceImpl implements FileCatalogService{
             catalogSize.addAndGet(fileCatalogItem.fileSize());
         } catch (Exception e) {
             log.error("Failed to upload {} to the cloud provider",fileCatalogItem.absolutePath(), e);
-            notificationService.notifyError("Failed to upload "+fileCatalogItem.absolutePath()+" "+e.getMessage());
+            ScanLocationConfig fileLocationConfig = new ScanLocationConfig();
+            fileLocationConfig.setScanFolder(fileCatalogItem.absolutePath());
+            notificationService.notifyError("Failed to upload "+e.getMessage(),fileLocationConfig);
         }
     }
 

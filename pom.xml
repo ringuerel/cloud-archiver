@@ -10,7 +10,7 @@
 	</parent>
 	<groupId>com.homelab.ringue</groupId>
 	<artifactId>cloud-archiver</artifactId>
-	<version>0.9.9.003-SNAPSHOT</version>
+	<version>0.9.9.003</version>
 	<name>cloud-archiver</name>
 	<description>Uploads configured folder content (media) to archive on a cloud provider</description>
 	<properties>
@@ -69,6 +69,27 @@
 							<artifactId>lombok</artifactId>
 						</exclude>
 					</excludes>
+				</configuration>
+			</plugin>
+			<plugin>
+				<groupId>com.amashchenko.maven.plugin</groupId>
+				<artifactId>gitflow-maven-plugin</artifactId>
+				<version>1.21.0</version>
+				<configuration>
+					<gitFlowConfig>
+						<productionBranch>main</productionBranch>
+						<developmentBranch>develop</developmentBranch>
+						<featureBranchPrefix>feature/</featureBranchPrefix>
+						<releaseBranchPrefix>release/</releaseBranchPrefix>
+						<hotfixBranchPrefix>hotfix/</hotfixBranchPrefix>
+						<supportBranchPrefix>support/</supportBranchPrefix>
+						<versionTagPrefix>v</versionTagPrefix>
+						<origin>origin</origin>
+					</gitFlowConfig>
+
+					<commitMessages>
+						<!-- since 1.2.1, see Customizing commit messages -->
+					</commitMessages>
 				</configuration>
 			</plugin>
 		</plugins>
