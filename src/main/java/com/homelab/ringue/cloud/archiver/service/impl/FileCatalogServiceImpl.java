@@ -194,18 +194,23 @@ public class FileCatalogServiceImpl implements FileCatalogService{
         .map(fileOnDisk-> getFileToProcessIfAny(collectionIdsInMemoryCache, fileOnDisk))
         .filter(Objects::nonNull)//Filters out null again due to crc32c failures will return null
         .forEach(this::performCloudBackup);
+        log.info("Updating metadata only for {} items on {}",collectionIdsInMemoryCache.size(),locationConfig.getScanFolder());
+        collectionIdsInMemoryCache.values().parallelStream()
+        .forEach(fileCatalogItemRepository::save);
     }
 
     FileCatalogItem getFileToProcessIfAny(Map<String, FileCatalogItem> collectionIdsInMemoryCache,
             FileCatalogItem fileOnDisk) {
         Optional<FileCatalogItem> fileCatalogItem = Optional.ofNullable(collectionIdsInMemoryCache.remove(fileOnDisk.absolutePath()));
         boolean isModifiedOrNewItemItem = true;
-        if(fileCatalogItem.isPresent() && fileCatalogItem.get().lastModified().isEqual(fileOnDisk.lastModified())){
+        if(fileCatalogItem.isPresent() && fileCatalogItem.get().lastModified() != null && fileCatalogItem.get().lastModified().toEpochMilli() == fileOnDisk.lastModified().toEpochMilli()){
             return null;//No need to check for CRC as it is a backed up item that does not seems to have changed
         }
         if(isModifiedOrNewItemItem){
             fileOnDisk = getCrC32CPopulatedItem(fileOnDisk);
             if(fileCatalogItem.isPresent() && fileOnDisk != null && fileOnDisk.crc32c().equals(fileCatalogItem.get().crc32c())){
+                //Leaves updated lastModifiedDate version on the memory cache
+                collectionIdsInMemoryCache.put(fileOnDisk.absolutePath(), fileCatalogItemMapper.mapFromFileCatalogItemUpdateLastModified(fileCatalogItem.get(), fileOnDisk.lastModified()));
                 return null;//Nothing to backup to cloud
             }
         }

@@ -2,8 +2,7 @@ package com.homelab.ringue.cloud.archiver.service.impl;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
+import java.time.Instant;
 import java.util.Date;
 import org.springframework.stereotype.Component;
 
@@ -22,8 +21,7 @@ public class FileCatalogItemMapperImpl implements FileCatalogItemMapper {
             String fileName = path.getFileName().toString();
             String fileExtension = getFileExtension(fileName);
             Long fileSize = Files.size(path);
-            LocalDateTime lastModified= Files.getLastModifiedTime(path).toInstant().atZone(ZoneId.systemDefault()).toLocalDateTime();
-            return new FileCatalogItem(path.toAbsolutePath().toString(), fileName, fileExtension, path.toAbsolutePath().getParent().toString(), isDirectory, fileSize,null,null,lastModified);
+            return new FileCatalogItem(path.toAbsolutePath().toString(), fileName, fileExtension, path.toAbsolutePath().getParent().toString(), isDirectory, fileSize,null,null,Files.getLastModifiedTime(path).toInstant());
         }catch(Exception e){
             log.error("Failed converting {} to a valid FileCatalogItem",path, e);
         }
@@ -50,7 +48,7 @@ public class FileCatalogItemMapperImpl implements FileCatalogItemMapper {
     }
 
     @Override
-    public FileCatalogItem mapFromFileCatalogItemUpdateLastModified(FileCatalogItem fileCatalogItem, LocalDateTime lastModified) {
+    public FileCatalogItem mapFromFileCatalogItemUpdateLastModified(FileCatalogItem fileCatalogItem, Instant lastModified) {
         return new FileCatalogItem(fileCatalogItem.absolutePath(), fileCatalogItem.fileName(), fileCatalogItem.fileExtension(), fileCatalogItem.parentFolder(), fileCatalogItem.isDirectory(), fileCatalogItem.fileSize(), fileCatalogItem.archiveDate(),fileCatalogItem.crc32c(),lastModified);
     }
 

@@ -1,5 +1,6 @@
 package com.homelab.ringue.cloud.archiver.service.impl;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -8,7 +9,7 @@ import static org.mockito.Mockito.mockStatic;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -128,10 +129,10 @@ public class FileCatalogServiceImplTest {
 
     @Test
     void processFileStreamForBackupIgnoresBackedUpItems() throws IOException{
-        FileCatalogItem someFile = new FileCatalogItem(TEST_SCAN_FOLDER+"/someFile.jpg", "someFile.jpg", "jpg", TEST_SCAN_FOLDER, false, 50L, null,CRC32C, LocalDateTime.now());
-        FileCatalogItem otherFile = new FileCatalogItem(TEST_SCAN_FOLDER+"/otherFile.jpg", "someFile.jpg", "jpg", TEST_SCAN_FOLDER, false, 70L, null,null, LocalDateTime.now());
-        FileCatalogItem someMovFile = new FileCatalogItem(TEST_SCAN_FOLDER+"/someMovFile.mov", "someMovFile.mov", "mov", TEST_SCAN_FOLDER, false, 250L, null,CRC32C, LocalDateTime.now());
-        FileCatalogItem someFolder = new FileCatalogItem(TEST_SCAN_FOLDER+"/someFolder", "someMovFile", null, TEST_SCAN_FOLDER, true, 0L, null,null, LocalDateTime.now());
+        FileCatalogItem someFile = new FileCatalogItem(TEST_SCAN_FOLDER+"/someFile.jpg", "someFile.jpg", "jpg", TEST_SCAN_FOLDER, false, 50L, null,CRC32C, Instant.now());
+        FileCatalogItem otherFile = new FileCatalogItem(TEST_SCAN_FOLDER+"/otherFile.jpg", "someFile.jpg", "jpg", TEST_SCAN_FOLDER, false, 70L, null,null, Instant.now());
+        FileCatalogItem someMovFile = new FileCatalogItem(TEST_SCAN_FOLDER+"/someMovFile.mov", "someMovFile.mov", "mov", TEST_SCAN_FOLDER, false, 250L, null,CRC32C, Instant.now());
+        FileCatalogItem someFolder = new FileCatalogItem(TEST_SCAN_FOLDER+"/someFolder", "someMovFile", null, TEST_SCAN_FOLDER, true, 0L, null,null, Instant.now());
         Stream<Path> filesStream = prepareFilesStream(Arrays.asList(
             someFile.absolutePath(),
             otherFile.absolutePath(),
@@ -157,8 +158,8 @@ public class FileCatalogServiceImplTest {
 
     @Test
     void processFileStreamForBackupIgnoresWhenLastModifiedDateHasNotChanged() throws IOException{
-        FileCatalogItem someFile = new FileCatalogItem(TEST_SCAN_FOLDER+"/someFile.jpg", "someFile.jpg", "jpg", TEST_SCAN_FOLDER, false, 50L, null,null,LocalDateTime.of(1999, 1, 1, 20, 22));
-        FileCatalogItem updatedFile = new FileCatalogItem(TEST_SCAN_FOLDER+"/otherFile.jpg", "someFile.jpg", "jpg", TEST_SCAN_FOLDER, false, 70L, null,null,LocalDateTime.of(1998, 1, 1, 20, 22));
+        FileCatalogItem someFile = new FileCatalogItem(TEST_SCAN_FOLDER+"/someFile.jpg", "someFile.jpg", "jpg", TEST_SCAN_FOLDER, false, 50L, null,null,Instant.now());
+        FileCatalogItem updatedFile = new FileCatalogItem(TEST_SCAN_FOLDER+"/otherFile.jpg", "someFile.jpg", "jpg", TEST_SCAN_FOLDER, false, 70L, null,null,Instant.now());
         Stream<Path> filesStream = prepareFilesStream(Arrays.asList(
             someFile.absolutePath(),
             updatedFile.absolutePath()
@@ -187,6 +188,7 @@ public class FileCatalogServiceImplTest {
         Mockito.when(fileCatalogItemMapper.mapFromFileCatalogItemUpdateCheckSum(fileCatalogItem, null)).thenReturn(new FileCatalogItem(CRC32C, CRC32C, CRC32C, TEST_SCAN_FOLDER, false, null, null, null, null));
         FileCatalogItem fileToProcessIfAny = serviceImplSpy.getFileToProcessIfAny(new HashMap<>(collectionIdsInMemoryCache), fileCatalogItem);
         assertNull(fileToProcessIfAny);
+        assertEquals(2,collectionIdsInMemoryCache.size());
     }
 
     @ParameterizedTest
@@ -200,9 +202,9 @@ public class FileCatalogServiceImplTest {
     }
 
     static Stream<? extends Arguments> existingAndUnmodifiedItems() {
-        FileCatalogItem existingUnModifiedFile = new FileCatalogItem(TEST_SCAN_FOLDER+"/someFile1.jpg", "someFile1.jpg", "jpg", TEST_SCAN_FOLDER, false, 50L, null,null,LocalDateTime.of(1999, 1, 1, 20, 22));
-        FileCatalogItem existingPreviousVersion = new FileCatalogItem(TEST_SCAN_FOLDER+"/someFile.jpg", "someFile.jpg", "jpg", TEST_SCAN_FOLDER, false, 50L, null,CRC32C,LocalDateTime.of(1999, 1, 1, 20, 22));
-        FileCatalogItem existingUnModifiedFileButChangeDate = new FileCatalogItem(TEST_SCAN_FOLDER+"/someFile.jpg", "someFile.jpg", "jpg", TEST_SCAN_FOLDER, false, 50L, null,CRC32C,LocalDateTime.of(1999, 1, 1, 20, 23));
+        FileCatalogItem existingUnModifiedFile = new FileCatalogItem(TEST_SCAN_FOLDER+"/someFile1.jpg", "someFile1.jpg", "jpg", TEST_SCAN_FOLDER, false, 50L, null,null,Instant.now());
+        FileCatalogItem existingPreviousVersion = new FileCatalogItem(TEST_SCAN_FOLDER+"/someFile.jpg", "someFile.jpg", "jpg", TEST_SCAN_FOLDER, false, 50L, null,CRC32C,Instant.now().minusMillis(60000L));
+        FileCatalogItem existingUnModifiedFileButChangeDate = new FileCatalogItem(TEST_SCAN_FOLDER+"/someFile.jpg", "someFile.jpg", "jpg", TEST_SCAN_FOLDER, false, 50L, null,CRC32C,Instant.now());
         Map<String, FileCatalogItem> inMemmoryItems = new HashMap<>();
         inMemmoryItems.put(existingUnModifiedFile.absolutePath(), existingUnModifiedFile);
         inMemmoryItems.put(existingPreviousVersion.absolutePath(), existingPreviousVersion);
@@ -213,9 +215,9 @@ public class FileCatalogServiceImplTest {
     }
 
     static Stream<? extends Arguments> newAndModifiedItems() {
-        FileCatalogItem newItem = new FileCatalogItem(TEST_SCAN_FOLDER+"/someNewFile.jpg", "someNewFile.jpg", "jpg", TEST_SCAN_FOLDER, false, 50L, null,null,LocalDateTime.of(1999, 1, 1, 20, 22));
-        FileCatalogItem existingPreviousVersion = new FileCatalogItem(TEST_SCAN_FOLDER+"/someFile.jpg", "someFile.jpg", "jpg", TEST_SCAN_FOLDER, false, 50L, null,CRC32C,LocalDateTime.of(1999, 1, 1, 20, 22));
-        FileCatalogItem modifiedVersion = new FileCatalogItem(TEST_SCAN_FOLDER+"/someFile.jpg", "someFile.jpg", "jpg", TEST_SCAN_FOLDER, false, 50L, null,null,LocalDateTime.of(1999, 1, 1, 20, 23));
+        FileCatalogItem newItem = new FileCatalogItem(TEST_SCAN_FOLDER+"/someNewFile.jpg", "someNewFile.jpg", "jpg", TEST_SCAN_FOLDER, false, 50L, null,null,Instant.now());
+        FileCatalogItem existingPreviousVersion = new FileCatalogItem(TEST_SCAN_FOLDER+"/someFile.jpg", "someFile.jpg", "jpg", TEST_SCAN_FOLDER, false, 50L, null,CRC32C,Instant.now().minusMillis(06000L));
+        FileCatalogItem modifiedVersion = new FileCatalogItem(TEST_SCAN_FOLDER+"/someFile.jpg", "someFile.jpg", "jpg", TEST_SCAN_FOLDER, false, 50L, null,null,Instant.now());
         Map<String, FileCatalogItem> inMemmoryItems = new HashMap<>();
         inMemmoryItems.put(existingPreviousVersion.absolutePath(), existingPreviousVersion);
         return Stream.of(
