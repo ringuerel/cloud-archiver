@@ -2,8 +2,8 @@ package com.homelab.ringue.cloud.archiver.service.impl;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.Date;
-
 import org.springframework.stereotype.Component;
 
 import com.homelab.ringue.cloud.archiver.domain.FileCatalogItem;
@@ -21,7 +21,7 @@ public class FileCatalogItemMapperImpl implements FileCatalogItemMapper {
             String fileName = path.getFileName().toString();
             String fileExtension = getFileExtension(fileName);
             Long fileSize = Files.size(path);
-            return new FileCatalogItem(path.toAbsolutePath().toString(), fileName, fileExtension, path.toAbsolutePath().getParent().toString(), isDirectory, fileSize,null,null);
+            return new FileCatalogItem(path.toAbsolutePath().toString(), fileName, fileExtension, path.toAbsolutePath().getParent().toString(), isDirectory, fileSize,null,null,Files.getLastModifiedTime(path).toInstant());
         }catch(Exception e){
             log.error("Failed converting {} to a valid FileCatalogItem",path, e);
         }
@@ -39,12 +39,17 @@ public class FileCatalogItemMapperImpl implements FileCatalogItemMapper {
 
     @Override
     public FileCatalogItem mapFromFileCatalogItemAddArchiveDate(FileCatalogItem fileCatalogItem) {
-        return new FileCatalogItem(fileCatalogItem.absolutePath(), fileCatalogItem.fileName(), fileCatalogItem.fileExtension(), fileCatalogItem.parentFolder(), fileCatalogItem.isDirectory(), fileCatalogItem.fileSize(), new Date(),fileCatalogItem.crc32c());
+        return new FileCatalogItem(fileCatalogItem.absolutePath(), fileCatalogItem.fileName(), fileCatalogItem.fileExtension(), fileCatalogItem.parentFolder(), fileCatalogItem.isDirectory(), fileCatalogItem.fileSize(), new Date(),fileCatalogItem.crc32c(),fileCatalogItem.lastModified());
     }
 
     @Override
     public FileCatalogItem mapFromFileCatalogItemUpdateCheckSum(FileCatalogItem fileCatalogItem, String checkSum) {
-        return new FileCatalogItem(fileCatalogItem.absolutePath(), fileCatalogItem.fileName(), fileCatalogItem.fileExtension(), fileCatalogItem.parentFolder(), fileCatalogItem.isDirectory(), fileCatalogItem.fileSize(), fileCatalogItem.archiveDate(),checkSum);
+        return new FileCatalogItem(fileCatalogItem.absolutePath(), fileCatalogItem.fileName(), fileCatalogItem.fileExtension(), fileCatalogItem.parentFolder(), fileCatalogItem.isDirectory(), fileCatalogItem.fileSize(), fileCatalogItem.archiveDate(),checkSum,fileCatalogItem.lastModified());
+    }
+
+    @Override
+    public FileCatalogItem mapFromFileCatalogItemUpdateLastModified(FileCatalogItem fileCatalogItem, Instant lastModified) {
+        return new FileCatalogItem(fileCatalogItem.absolutePath(), fileCatalogItem.fileName(), fileCatalogItem.fileExtension(), fileCatalogItem.parentFolder(), fileCatalogItem.isDirectory(), fileCatalogItem.fileSize(), fileCatalogItem.archiveDate(),fileCatalogItem.crc32c(),lastModified);
     }
 
 }

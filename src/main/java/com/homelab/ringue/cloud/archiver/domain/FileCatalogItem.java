@@ -1,5 +1,6 @@
 package com.homelab.ringue.cloud.archiver.domain;
 
+import java.time.Instant;
 import java.util.Date;
 
 import org.bson.BsonType;
@@ -20,5 +21,6 @@ public record FileCatalogItem(
     boolean isDirectory,
     Long fileSize,
     Date archiveDate,
-    String crc32c
+    String crc32c,
+    Instant lastModified
     ) {}

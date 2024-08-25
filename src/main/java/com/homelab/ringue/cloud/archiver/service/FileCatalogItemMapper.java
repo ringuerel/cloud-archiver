@@ -1,15 +1,17 @@
 package com.homelab.ringue.cloud.archiver.service;
 
 import java.nio.file.Path;
-
+import java.time.Instant;
 import com.homelab.ringue.cloud.archiver.domain.FileCatalogItem;
 
 public interface FileCatalogItemMapper {
 
-    public FileCatalogItem mapFromPath(Path path);
+    FileCatalogItem mapFromPath(Path path);
 
-    public FileCatalogItem mapFromFileCatalogItemAddArchiveDate(FileCatalogItem fileCatalogItem);
+    FileCatalogItem mapFromFileCatalogItemAddArchiveDate(FileCatalogItem fileCatalogItem);
 
-    public FileCatalogItem mapFromFileCatalogItemUpdateCheckSum(FileCatalogItem fileCatalogItem, String checkSum);
+    FileCatalogItem mapFromFileCatalogItemUpdateCheckSum(FileCatalogItem fileCatalogItem, String checkSum);
+
+    FileCatalogItem mapFromFileCatalogItemUpdateLastModified(FileCatalogItem fileCatalogItem, Instant lastModified);
 
 }
