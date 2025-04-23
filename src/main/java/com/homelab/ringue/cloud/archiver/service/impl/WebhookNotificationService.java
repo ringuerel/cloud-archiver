@@ -2,8 +2,15 @@ package com.homelab.ringue.cloud.archiver.service.impl;
 
 import java.text.CharacterIterator;
 import java.text.StringCharacterIterator;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.Optional;
 
+import com.homelab.ringue.cloud.archiver.service.notification.Embed;
+import com.homelab.ringue.cloud.archiver.service.notification.Field;
+import com.homelab.ringue.cloud.archiver.service.notification.WebhookPayload;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.scheduling.annotation.Async;
@@ -15,7 +22,6 @@ import com.homelab.ringue.cloud.archiver.config.ApplicationProperties.ScanLocati
 import com.homelab.ringue.cloud.archiver.domain.SyncSummaryItem;
 import com.homelab.ringue.cloud.archiver.service.NotificationService;
 
-import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 
 @Service
@@ -30,12 +36,6 @@ public class WebhookNotificationService implements NotificationService{
     public WebhookNotificationService(ApplicationProperties applicationProperties,RestTemplateBuilder restTemplateBuilder){
         this.notificationsConfig = applicationProperties.getNotificationsConfig();
         this.restTemplateBuilder = restTemplateBuilder;
-    }
-
-    @Data
-    class WebhookPayload{
-        private String username;
-        private String content;
     }
 
     String humanReadableByteCountSI(long bytes) {
@@ -55,15 +55,11 @@ public class WebhookNotificationService implements NotificationService{
         if(notificationsConfig == null){
             return;
         }
-        sendMessageFromTemplate(notificationsConfig.getSummaryTemplateText(), summary, scanlocationconfig);
+        presentAndSendMessage(notificationsConfig.getSummaryTemplateText(), summary, scanlocationconfig);
     }
 
-    void sendWebhookMessage(String webhookMessage){
-        WebhookPayload payload = new WebhookPayload();
-        payload.setUsername(notificationsConfig.getUserName());
-        log.debug("About to send webhook message {}",webhookMessage);
-        payload.setContent(webhookMessage);
-        restTemplateBuilder.build().postForEntity(notificationsConfig.getUri(), payload, String.class);
+    void sendWebhookMessage(WebhookPayload webhookPayload){
+        restTemplateBuilder.build().postForEntity(notificationsConfig.getUri(), webhookPayload, String.class);
     }
 
     @Override
@@ -71,7 +67,7 @@ public class WebhookNotificationService implements NotificationService{
         if(notificationsConfig == null){
             return;
         }
-        sendMessageFromTemplate(Optional.ofNullable(notificationsConfig.getErrorPrefix()).orElse(ApplicationProperties.NotificationsConfig.DEFAULT_ERROR_PREFIX)+ApplicationProperties.NotificationsConfig.SCAN_LOCATION+": "+message,null,scanLocationConfig);
+        presentAndSendMessage(Optional.ofNullable(notificationsConfig.getErrorPrefix()).orElse(ApplicationProperties.NotificationsConfig.DEFAULT_ERROR_PREFIX)+ApplicationProperties.NotificationsConfig.SCAN_LOCATION+": "+message,null,scanLocationConfig);
     }
 
     @Override
@@ -79,11 +75,42 @@ public class WebhookNotificationService implements NotificationService{
         if(notificationsConfig == null){
             return;
         }
-        sendMessageFromTemplate(Optional.ofNullable(notificationsConfig.getInfoPrefix()).orElse(ApplicationProperties.NotificationsConfig.DEFAULT_INFO_PREFIX)+ApplicationProperties.NotificationsConfig.SCAN_LOCATION+": "+message,null,scanLocationConfig);
+        presentAndSendMessage(Optional.ofNullable(notificationsConfig.getInfoPrefix()).orElse(ApplicationProperties.NotificationsConfig.DEFAULT_INFO_PREFIX)+ApplicationProperties.NotificationsConfig.SCAN_LOCATION+": "+message,null,scanLocationConfig);
     }
 
-    void sendMessageFromTemplate(String messageTemplate, SyncSummaryItem syncSummaryItem,ScanLocationConfig scanlocationconfig) {
-        sendWebhookMessage(replaceMessageInTemplate(messageTemplate,syncSummaryItem,scanlocationconfig));
+    void presentAndSendMessage(String messageTemplate, SyncSummaryItem syncSummaryItem, ScanLocationConfig scanlocationconfig) {
+        WebhookPayload.WebhookPayloadBuilder webhookPayloadBuilder = WebhookPayload.builder().username(notificationsConfig.getUserName());
+        if(notificationsConfig.isEmbedEnabled()){
+            log.info("Presenting message with embed");
+            if(syncSummaryItem == null){
+                log.error("Invalid (null) syncSummaryItem was passed to notify");
+                syncSummaryItem = new SyncSummaryItem(Instant.now().toString(),0,0,0,0, Instant.now());
+            }
+            webhookPayloadBuilder.embed(Embed.builder()
+                    .color("65280")//Green
+                    .title(scanlocationconfig.getScanFolder())
+                    .field(Field.builder().name("Uploaded files").value(Optional.ofNullable(syncSummaryItem.uploadCount()).orElse(0).toString())
+                            .inline(true)
+                            .build())
+                    .field(Field.builder().name("Size").value(humanReadableByteCountSI(syncSummaryItem.uploadSize()))
+                            .inline(true)
+                            .build())
+                    .build())
+            .embed(Embed.builder()
+                    .color("16711680")//Red
+                    .title(scanlocationconfig.getScanFolder())
+                    .field(Field.builder().name("Deleted files").value(Optional.ofNullable(syncSummaryItem.deleteCount()).orElse(0).toString())
+                            .inline(true)
+                            .build())
+                    .field(Field.builder().name("Size").value(humanReadableByteCountSI(syncSummaryItem.deleteSize()))
+                            .inline(true)
+                            .build())
+                    .build());
+        }else{
+            webhookPayloadBuilder.content(replaceMessageInTemplate(messageTemplate,syncSummaryItem,scanlocationconfig));
+        }
+        WebhookPayload webhookPayload = webhookPayloadBuilder.build();
+        sendWebhookMessage(webhookPayload);
     }
 
     protected String replaceMessageInTemplate(String messageTemplate, SyncSummaryItem syncSummaryItem,

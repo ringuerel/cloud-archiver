@@ -1,4 +1,9 @@
 application:
+  notificationsConfig:
+    uri: https://discord.com/api/webhooks/someid/sometoken # Discord webhook to use
+    userName: cloud-archiver # Discord name of the user sending the message
+    summaryTemplateText: "SCAN_LOCATION\n:arrow_up: to :cloud: IMPORTED_COUNT size IMPORTED_SIZE \n:arrow_down: from :cloud: DELETED_COUNT size DELETED_SIZE" # Your message, keywords, will be replaced with values
+    embedEnabled: false # If set to true will ignore the template and present the message in discord with some colors and stuff
   cloudProviderConfig:
     type: GCP
     projectId: gcp-project-id-name
