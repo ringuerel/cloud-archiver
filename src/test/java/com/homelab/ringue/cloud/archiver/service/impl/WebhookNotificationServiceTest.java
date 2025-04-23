@@ -47,12 +47,16 @@ public class WebhookNotificationServiceTest {
     @ParameterizedTest
     @MethodSource("messageTemplateTestProvider")
     void testPresentAndSendMessageShouldUseEmbed(String messageTemplate, SyncSummaryItem syncSummaryItem,ScanLocationConfig scanlocationconfig){
-        Mockito.doNothing().when(notificationService).sendWebhookMessage(Mockito.any(WebhookPayload.class));
+        if(syncSummaryItem != null)
+            Mockito.doNothing().when(notificationService).sendWebhookMessage(Mockito.any(WebhookPayload.class));
         Mockito.when(notificationsConfig.isEmbedEnabled()).thenReturn(true);
         notificationService.presentAndSendMessage(messageTemplate,syncSummaryItem,scanlocationconfig);
-        ArgumentCaptor<WebhookPayload> captor = ArgumentCaptor.forClass(WebhookPayload.class);
-        Mockito.verify(notificationService).sendWebhookMessage(captor.capture());
-        Assertions.assertNotNull(captor.getValue().getEmbeds());
+        if(syncSummaryItem != null) {
+            ArgumentCaptor<WebhookPayload> captor = ArgumentCaptor.forClass(WebhookPayload.class);
+            Mockito.verify(notificationService).sendWebhookMessage(captor.capture());
+            Assertions.assertNotNull(captor.getValue().getEmbeds());
+        }else
+            Mockito.verify(notificationService,Mockito.times(0)).sendWebhookMessage(Mockito.any());
     }
 
     @ParameterizedTest
