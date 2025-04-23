@@ -83,8 +83,8 @@ public class WebhookNotificationService implements NotificationService{
         if(notificationsConfig.isEmbedEnabled()){
             log.info("Presenting message with embed");
             if(syncSummaryItem == null){
-                log.error("Invalid (null) syncSummaryItem was passed to notify");
-                syncSummaryItem = new SyncSummaryItem(Instant.now().toString(),0,0,0,0, Instant.now());
+                //Skips presenting start process messages
+                return;
             }
             webhookPayloadBuilder.embed(Embed.builder()
                     .color("65280")//Green

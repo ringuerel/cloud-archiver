@@ -16,5 +16,5 @@ logging:
         ringue: INFO
 backup:
   schedule:
-    cron: 0 11 * * * * #Mondays 11AM
+    cron: 0/10 * * * * * #Mondays 11AM
 # End of default configs
