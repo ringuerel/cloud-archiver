@@ -55,6 +55,7 @@ public class ApplicationProperties {
         private String summaryTemplateText;
         private String infoPrefix;
         private String errorPrefix;
+        private boolean embedEnabled;
         public String getSummaryTemplateText(){
             return Optional.ofNullable(summaryTemplateText).orElse(DEFAULT_SUMMARY_TEMPLATE);
         }

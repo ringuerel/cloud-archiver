@@ -5,14 +5,14 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import java.time.Instant;
 import java.util.stream.Stream;
 
+import com.homelab.ringue.cloud.archiver.service.notification.WebhookPayload;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.Mockito;
-import org.mockito.Spy;
+import org.mockito.*;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.homelab.ringue.cloud.archiver.config.ApplicationProperties;
@@ -31,12 +31,28 @@ public class WebhookNotificationServiceTest {
     @Mock
     NotificationsConfig notificationsConfig;
 
+    @BeforeEach
+    public void init(){
+        MockitoAnnotations.openMocks(this);
+    }
+
     @ParameterizedTest
     @MethodSource("messageTemplateTestProvider")
-    void testSendMessageFromTemplateShouldInvokeReplaceMessageInTemplate(String messageTemplate, SyncSummaryItem syncSummaryItem,ScanLocationConfig scanlocationconfig){
-        Mockito.doNothing().when(notificationService).sendWebhookMessage(Mockito.anyString());
-        notificationService.sendMessageFromTemplate(messageTemplate,syncSummaryItem,scanlocationconfig);
+    void testPresentAndSendMessageShouldInvokeReplaceMessageInTemplate(String messageTemplate, SyncSummaryItem syncSummaryItem,ScanLocationConfig scanlocationconfig){
+        Mockito.doNothing().when(notificationService).sendWebhookMessage(Mockito.any(WebhookPayload.class));
+        notificationService.presentAndSendMessage(messageTemplate,syncSummaryItem,scanlocationconfig);
         Mockito.verify(notificationService).replaceMessageInTemplate(messageTemplate,syncSummaryItem,scanlocationconfig);
+    }
+
+    @ParameterizedTest
+    @MethodSource("messageTemplateTestProvider")
+    void testPresentAndSendMessageShouldUseEmbed(String messageTemplate, SyncSummaryItem syncSummaryItem,ScanLocationConfig scanlocationconfig){
+        Mockito.doNothing().when(notificationService).sendWebhookMessage(Mockito.any(WebhookPayload.class));
+        Mockito.when(notificationsConfig.isEmbedEnabled()).thenReturn(true);
+        notificationService.presentAndSendMessage(messageTemplate,syncSummaryItem,scanlocationconfig);
+        ArgumentCaptor<WebhookPayload> captor = ArgumentCaptor.forClass(WebhookPayload.class);
+        Mockito.verify(notificationService).sendWebhookMessage(captor.capture());
+        Assertions.assertNotNull(captor.getValue().getEmbeds());
     }
 
     @ParameterizedTest

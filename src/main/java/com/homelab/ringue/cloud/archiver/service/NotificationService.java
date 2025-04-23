@@ -10,5 +10,4 @@ public interface NotificationService {
     void notifyError(String message,ScanLocationConfig scanLocationConfig);
 
     void notifyInfoMessage(String message,ScanLocationConfig scanLocationConfig);
-
 }
