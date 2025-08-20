@@ -26,9 +26,14 @@ public class ApplicationProperties {
     private CloudProviderConfig cloudProviderConfig;
     private NotificationsConfig notificationsConfig;
     private Integer crc32cBufferSize;
+    private String downloadRoot;
 
     public int getCrc32cBufferSize(){
         return Optional.ofNullable(crc32cBufferSize).orElse(1024);
+    }
+
+    public String getDownloadRoot() {
+        return downloadRoot;
     }
 
     @Data

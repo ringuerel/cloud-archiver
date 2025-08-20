@@ -60,6 +60,40 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 @Scope("prototype")
 public class FileCatalogServiceImpl implements FileCatalogService{
+    @Override
+    public boolean downloadFromCloud(String cloudPath) {
+        try {
+            String downloadRoot = applicationProperties.getDownloadRoot();
+            if (downloadRoot == null || downloadRoot.isEmpty()) {
+                log.error("downloadRoot is not configured");
+                return false;
+            }
+            var cloudProvider = cloudProviderFactory.getCloudProvider(applicationProperties.getCloudProviderConfig().getType());
+
+            // Compute the relative path from the cloudPath (strip drive letter and leading slash if present)
+            Path cloudPathObj = Paths.get(cloudPath);
+            Path relativePath = cloudPathObj.isAbsolute()
+                ? cloudPathObj.getRoot() == null
+                    ? cloudPathObj
+                    : cloudPathObj.getRoot().relativize(cloudPathObj)
+                : cloudPathObj;
+
+            // Build the local target path under the configured root
+            Path localTargetPathObj = Paths.get(downloadRoot).resolve(relativePath.toString().replace("/", "\\"));
+            // Ensure parent directories exist
+            Path parentDir = localTargetPathObj.getParent();
+            if (parentDir != null && !Files.exists(parentDir)) {
+                Files.createDirectories(parentDir);
+            }
+
+            cloudProvider.download(cloudPath, localTargetPathObj.toString());
+            log.info("Downloaded {} to {}", cloudPath, localTargetPathObj);
+            return true;
+        } catch (Exception e) {
+            log.error("Failed to download {} from cloud provider", cloudPath, e);
+            return false;
+        }
+    }
     
     private FileCatalogItemRepository fileCatalogItemRepository;
     private SyncSummaryRepository syncSummaryRepository;
@@ -270,7 +304,7 @@ public class FileCatalogServiceImpl implements FileCatalogService{
         if(isModifiedOrNewItemItem){
             fileOnDisk = getCrC32CPopulatedItem(fileOnDisk);
             if(fileCatalogItem.isPresent() && fileOnDisk != null && fileOnDisk.crc32c().equals(fileCatalogItem.get().crc32c())){
-                //Leaves updated lastModifiedDate version on the memory cache
+                //Leaves updated lastModifiedDate on the memory cache
                 collectionIdsInMemoryCache.put(fileOnDisk.absolutePath(), fileCatalogItemMapper.mapFromFileCatalogItemUpdateLastModified(fileCatalogItem.get(), fileOnDisk.lastModified()));
                 return null;//Nothing to backup to cloud
             }

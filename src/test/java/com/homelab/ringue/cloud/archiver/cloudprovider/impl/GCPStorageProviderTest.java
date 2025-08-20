@@ -1,0 +1,85 @@
+package com.homelab.ringue.cloud.archiver.cloudprovider.impl;
+
+import com.homelab.ringue.cloud.archiver.config.ApplicationProperties;
+import com.google.cloud.storage.Blob;
+import com.google.cloud.storage.Storage;
+import com.google.api.gax.paging.Page;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mock;
+import org.mockito.MockitoAnnotations;
+
+import java.io.IOException;
+import java.nio.file.Path;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
+
+class GCPStorageProviderTest {
+    @Mock
+    private ApplicationProperties applicationProperties;
+    @Mock
+    private Storage storage;
+    @Mock
+    private Blob blob;
+
+    private GCPStorageProvider gcpStorageProvider;
+
+    @BeforeEach
+    void setUp() {
+        MockitoAnnotations.openMocks(this);
+        gcpStorageProvider = spy(new GCPStorageProvider(applicationProperties));
+    }
+
+    @Test
+    void testDownloadSingleFile() throws IOException {
+        String cloudPath = "immich/library/admin/2008/2008-12-31/AbuelaBernardina.jpg";
+        String localTargetPath = "C:/downloads/immich/library/admin/2008/2008-12-31/AbuelaBernardina.jpg";
+        doReturn(storage).when(gcpStorageProvider).getConfiguredStorage(any());
+        when(applicationProperties.getCloudProviderConfig()).thenReturn(mock(ApplicationProperties.CloudProviderConfig.class));
+        when(applicationProperties.getCloudProviderConfig().getBucketName()).thenReturn("bucket");
+        when(applicationProperties.getCloudProviderConfig().getProjectId()).thenReturn("project");
+        when(storage.get("bucket", cloudPath)).thenReturn(blob);
+        doNothing().when(blob).downloadTo(any(Path.class));
+
+        gcpStorageProvider.download(cloudPath, localTargetPath);
+        verify(blob, times(1)).downloadTo(any(Path.class));
+    }
+
+    @Test
+    void testDownloadFolderRecursively() throws IOException {
+        String cloudPath = "immich/library/admin/2008/2008-12-31/";
+        String localTargetPath = "C:/downloads/immich/library/admin/2008/2008-12-31/";
+        doReturn(storage).when(gcpStorageProvider).getConfiguredStorage(any());
+        when(applicationProperties.getCloudProviderConfig()).thenReturn(mock(ApplicationProperties.CloudProviderConfig.class));
+        when(applicationProperties.getCloudProviderConfig().getBucketName()).thenReturn("bucket");
+        when(applicationProperties.getCloudProviderConfig().getProjectId()).thenReturn("project");
+        Blob fileBlob = mock(Blob.class);
+        when(fileBlob.isDirectory()).thenReturn(false);
+        when(fileBlob.getName()).thenReturn("immich/library/admin/2008/2008-12-31/AbuelaBernardina.jpg");
+        doNothing().when(fileBlob).downloadTo(any(Path.class));
+    Iterable<Blob> blobs = java.util.List.of(fileBlob);
+    Storage.BlobListOption prefixOption = Storage.BlobListOption.prefix(cloudPath);
+    Storage.BlobListOption dirOption = Storage.BlobListOption.currentDirectory();
+    Page<Blob> pageMock = mock(Page.class);
+    when(storage.list(eq("bucket"), eq(prefixOption), eq(dirOption))).thenReturn(pageMock);
+    when(pageMock.iterateAll()).thenReturn(blobs);
+
+    gcpStorageProvider.download(cloudPath, localTargetPath);
+    verify(fileBlob, times(1)).downloadTo(any(Path.class));
+    }
+
+    @Test
+    void testDownloadFileNotFoundThrows() throws IOException {
+        String cloudPath = "immich/library/admin/2008/2008-12-31/NotFound.jpg";
+        String localTargetPath = "C:/downloads/immich/library/admin/2008/2008-12-31/NotFound.jpg";
+        doReturn(storage).when(gcpStorageProvider).getConfiguredStorage(any());
+        when(applicationProperties.getCloudProviderConfig()).thenReturn(mock(ApplicationProperties.CloudProviderConfig.class));
+        when(applicationProperties.getCloudProviderConfig().getBucketName()).thenReturn("bucket");
+        when(applicationProperties.getCloudProviderConfig().getProjectId()).thenReturn("project");
+        when(storage.get("bucket", cloudPath)).thenReturn(null);
+
+        assertThrows(IOException.class, () -> gcpStorageProvider.download(cloudPath, localTargetPath));
+    }
+}

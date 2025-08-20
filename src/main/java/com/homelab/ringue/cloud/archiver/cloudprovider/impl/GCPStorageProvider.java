@@ -30,6 +30,40 @@ import lombok.extern.slf4j.Slf4j;
 @Qualifier("gcp")
 @Slf4j
 public class GCPStorageProvider implements CloudProvider{
+    private void downloadBlobToPath(Blob blob, java.nio.file.Path targetFile) throws IOException {
+        java.nio.file.Files.createDirectories(targetFile.getParent());
+        blob.downloadTo(targetFile);
+        log.info("Downloaded file {} to {}", blob.getName(), targetFile);
+    }
+    @Override
+    public void download(String cloudPath, String localTargetPath) throws IOException {
+        String gcpBucketName = applicationProperties.getCloudProviderConfig().getBucketName();
+        String gcpProjectId = applicationProperties.getCloudProviderConfig().getProjectId();
+        Storage storage = getConfiguredStorage(gcpProjectId);
+
+        if (cloudPath.endsWith("/")) {
+            Iterable<Blob> blobs = storage.list(gcpBucketName, Storage.BlobListOption.prefix(cloudPath), Storage.BlobListOption.currentDirectory()).iterateAll();
+            for (Blob blob : blobs) {
+                if (blob.isDirectory()) {
+                    // Recursively download contents of the directory
+                    String subDirCloudPath = blob.getName();
+                    String subDirLocalPath = java.nio.file.Paths.get(localTargetPath, subDirCloudPath.substring(cloudPath.length())).toString();
+                    download(subDirCloudPath + "/", subDirLocalPath);
+                } else {
+                    String relativePath = blob.getName().substring(cloudPath.length());
+                    java.nio.file.Path targetFile = java.nio.file.Paths.get(localTargetPath, relativePath);
+                    downloadBlobToPath(blob, targetFile);
+                }
+            }
+        } else {
+            Blob blob = storage.get(gcpBucketName, cloudPath);
+            if (blob == null) {
+                throw new FileNotFoundException("Cloud file not found: " + cloudPath);
+            }
+            java.nio.file.Path targetFile = java.nio.file.Paths.get(localTargetPath);
+            downloadBlobToPath(blob, targetFile);
+        }
+    }
 
     private ApplicationProperties applicationProperties;
 
@@ -80,7 +114,7 @@ public class GCPStorageProvider implements CloudProvider{
         return BlobId.of(gcpBucketName, gcpObjectName);
     }
 
-    private Storage getConfiguredStorage(String gcpProjectId) throws FileNotFoundException, IOException {
+    Storage getConfiguredStorage(String gcpProjectId) throws FileNotFoundException, IOException {
         Credentials providedCredentials = setupCredentials();
         Storage storage = StorageOptions.newBuilder()
         .setCredentials(providedCredentials)
