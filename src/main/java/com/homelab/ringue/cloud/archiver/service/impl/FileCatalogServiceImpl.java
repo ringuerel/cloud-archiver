@@ -11,6 +11,8 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
@@ -20,6 +22,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
+import java.time.LocalDate;
+import java.time.ZoneId;
 
 import org.apache.logging.log4j.message.SimpleMessage;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -113,6 +117,28 @@ public class FileCatalogServiceImpl implements FileCatalogService{
     @Override
     public List<FileCatalogItem> findByFileNameContains(String fileName){
         return fileCatalogItemRepository.findByFileNameContains(fileName);
+    }
+
+    @Override
+    public List<FileCatalogItem> findByFileNameSimilar(String fileName) {
+        return fileCatalogItemRepository.findByFileNameContainsIgnoreCase(fileName);
+    }
+
+    @Override
+    public List<FileCatalogItem> findByArchiveDateBetweenAndAbsolutePathStartsWith(String startDate, String endDate, Optional<String> path) {
+        SimpleDateFormat formatter = new SimpleDateFormat("yyyy-MM-dd");
+        try {
+            Date start = formatter.parse(startDate);
+            Date end = formatter.parse(endDate);
+            if (path.isPresent()) {
+                return fileCatalogItemRepository.findByArchiveDateBetweenAndAbsolutePathStartsWith(start, end, path.get());
+            } else {
+                return fileCatalogItemRepository.findByArchiveDateBetween(start, end);
+            }
+        } catch (ParseException e) {
+            log.error("Failed to parse date for archived items search", e);
+            throw new IllegalArgumentException("Invalid date format. Please use yyyy-MM-dd.");
+        }
     }
 
     @Override
