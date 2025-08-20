@@ -22,6 +22,7 @@ So if you're considering to use this, leverage on the [GCS calculator](https://c
     - They offer a 516MB always-free quota, which seems small but is sufficient for metadata. At the time of writing, with 25,683 registered files and 266GB of data, I was using only 7.67MB.
 - Configurable sync between local locations and the cloud using cron expressions.
 - Configurable delete of cloud items if they were deleted locally (disabled by default).
+- Retrieve archived files by date range: A new endpoint `/file-catalog/archived-range` allows fetching `FileCatalogItem`s based on their `archiveDate` within a specified `startDate` and `endDate` (format: `YYYY-MM-DD`). An optional `path` parameter can be provided to filter results where `absolutePath` starts with the given path.
 
 ## Considerations
 

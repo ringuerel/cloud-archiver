@@ -28,6 +28,11 @@ application:
       standardDeleteDaysLimit: 30 # Days that you estimate to have your bucket items being on a Standard storage class and therefore delete is free, basically if a file is deleted up to 30 days after being uploaded it'll be deleted from GCP as well
       archiveDeleteDaysHold: 365 # Days afte getting a file getting to Archive storage class to be able to perform free delete (so we'll do standardDelete + archiveDeleteDaysHold), basically if a file is deleted before 365 + 30 days it'll not be deleted from GCP until it reaches the 395 days age since upload
       ignorepatterns: # Ignores files/folder with the different patterns
+management:
+  endpoints:
+    web:
+      exposure:
+        include: prometheus
 server:
   port: 8080
   servlet:

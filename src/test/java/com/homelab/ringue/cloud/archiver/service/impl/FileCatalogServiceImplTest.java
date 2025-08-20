@@ -23,7 +23,6 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -44,13 +43,15 @@ import com.homelab.ringue.cloud.archiver.repository.SyncSummaryRepository;
 import com.homelab.ringue.cloud.archiver.service.FileCatalogItemMapper;
 import com.homelab.ringue.cloud.archiver.service.NotificationService;
 
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.MeterRegistry.Config;
+import io.micrometer.core.instrument.Timer;
+
 public class FileCatalogServiceImplTest {
 
     private static final String TEST_SCAN_FOLDER = "/test/scan/folder/";
     private static final String CRC32C = "MOCKCRC32C";
 
-    @Spy
-    @InjectMocks
     private FileCatalogServiceImpl serviceImplSpy;
 
     @Mock
@@ -66,7 +67,6 @@ public class FileCatalogServiceImplTest {
     private ScanLocationConfig scanLocationConfigMock;
 
     @Mock
-
     private CloudProviderConfig cloudProviderConfig;
 
     @Mock
@@ -84,9 +84,31 @@ public class FileCatalogServiceImplTest {
     @Mock
     private CloudProvider cloudProvider;
 
+    @Mock
+    private MeterRegistry meterRegistry;
+
+    @Mock
+    private Config meterRegistryConfig;
+
+    @Mock
+    private Timer scanDurationTimerMock;
+
     @BeforeEach
     public void setupTests() throws IOException{
         MockitoAnnotations.openMocks(this);
+        Mockito.when(meterRegistry.config()).thenReturn(meterRegistryConfig);
+        Mockito.when(meterRegistry.timer(Mockito.anyString())).thenReturn(scanDurationTimerMock);
+        Mockito.doNothing().when(scanDurationTimerMock).record(Mockito.any(java.time.Duration.class));
+
+        serviceImplSpy = Mockito.spy(new FileCatalogServiceImpl(fileCatalogItemRepository, fileCatalogItemMapper, cloudProviderFactory, applicationProperties, summaryRepository, notificationService, meterRegistry));
+        // Inject mock scanDurationTimer into serviceImplSpy using reflection
+        try {
+            java.lang.reflect.Field scanDurationTimerField = FileCatalogServiceImpl.class.getDeclaredField("scanDurationTimer");
+            scanDurationTimerField.setAccessible(true);
+            scanDurationTimerField.set(serviceImplSpy, scanDurationTimerMock);
+        } catch (NoSuchFieldException | IllegalAccessException e) {
+            throw new RuntimeException("Failed to inject scanDurationTimer mock", e);
+        }
         Mockito.when(scanLocationConfigMock.getScanFolder()).thenReturn(TEST_SCAN_FOLDER);
         Mockito.when(applicationProperties.getCloudProviderConfig()).thenReturn(cloudProviderConfig);
         Mockito.when(cloudProviderConfig.getType()).thenReturn(CloudProviders.NO_PROVIDER);

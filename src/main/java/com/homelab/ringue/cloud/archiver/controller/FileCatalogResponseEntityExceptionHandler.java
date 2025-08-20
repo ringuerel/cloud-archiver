@@ -20,4 +20,12 @@ public class FileCatalogResponseEntityExceptionHandler extends ResponseEntityExc
           new HttpHeaders(), HttpStatus.CONFLICT, request);
     }
 
+    @ExceptionHandler(value = { IllegalArgumentException.class })
+    protected ResponseEntity<Object> handleBadRequest(
+        RuntimeException ex, WebRequest request) {
+        String bodyOfResponse = ex.getMessage();
+        return handleExceptionInternal(ex, bodyOfResponse, 
+          new HttpHeaders(), HttpStatus.BAD_REQUEST, request);
+    }
+
 }

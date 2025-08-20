@@ -11,6 +11,8 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
@@ -20,6 +22,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
+import java.time.LocalDate;
+import java.time.ZoneId;
 
 import org.apache.logging.log4j.message.SimpleMessage;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -46,6 +50,10 @@ import com.homelab.ringue.cloud.archiver.service.FileCatalogItemMapper;
 import com.homelab.ringue.cloud.archiver.service.FileCatalogService;
 import com.homelab.ringue.cloud.archiver.service.NotificationService;
 
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import lombok.extern.slf4j.Slf4j;
 
 @Service
@@ -67,14 +75,43 @@ public class FileCatalogServiceImpl implements FileCatalogService{
 
     private NotificationService notificationService;
 
+    private final MeterRegistry meterRegistry;
+    private final Counter filesUploadedCounter;
+    private final Counter filesDeletedCounter;
+    private final Timer uploadTimer;
+    private final Timer deleteTimer;
+    private final Timer scanDurationTimer;
+    private Gauge filesInCatalogGauge;
+
+
     @Autowired
-    public FileCatalogServiceImpl(FileCatalogItemRepository fileCatalogItemRepository, FileCatalogItemMapper fileCatalogItemMapper,CloudProviderFactory cloudProviderFactory, ApplicationProperties applicationProperties,SyncSummaryRepository syncSummaryRepository, NotificationService notificationService){
+    public FileCatalogServiceImpl(FileCatalogItemRepository fileCatalogItemRepository, FileCatalogItemMapper fileCatalogItemMapper,CloudProviderFactory cloudProviderFactory, ApplicationProperties applicationProperties,SyncSummaryRepository syncSummaryRepository, NotificationService notificationService, MeterRegistry meterRegistry){
         this.fileCatalogItemRepository = fileCatalogItemRepository;
         this.fileCatalogItemMapper = fileCatalogItemMapper;
         this.cloudProviderFactory = cloudProviderFactory;
         this.applicationProperties = applicationProperties;
         this.syncSummaryRepository = syncSummaryRepository;
         this.notificationService = notificationService;
+        this.meterRegistry = meterRegistry;
+
+        this.filesUploadedCounter = Counter.builder("cloud_archiver_files_uploaded_total")
+                .description("Total number of files successfully uploaded to the cloud")
+                .register(meterRegistry);
+        this.filesDeletedCounter = Counter.builder("cloud_archiver_files_deleted_total")
+                .description("Total number of files deleted from the cloud")
+                .register(meterRegistry);
+        this.uploadTimer = Timer.builder("cloud_archiver_upload_duration_seconds")
+                .description("Time taken for file upload operations")
+                .register(meterRegistry);
+        this.deleteTimer = Timer.builder("cloud_archiver_delete_duration_seconds")
+                .description("Time taken for file deletion operations")
+                .register(meterRegistry);
+        this.scanDurationTimer = Timer.builder("cloud_archiver_scan_duration_seconds")
+                .description("Duration of the folder scanning process")
+                .register(meterRegistry);
+        this.filesInCatalogGauge = Gauge.builder("cloud_archiver_files_in_catalog", fileCatalogItemRepository, FileCatalogItemRepository::count)
+                .description("Current number of files cataloged in the database")
+                .register(meterRegistry);
     }
 
     @Override
@@ -83,7 +120,30 @@ public class FileCatalogServiceImpl implements FileCatalogService{
     }
 
     @Override
+    public List<FileCatalogItem> findByFileNameSimilar(String fileName) {
+        return fileCatalogItemRepository.findByFileNameContainsIgnoreCase(fileName);
+    }
+
+    @Override
+    public List<FileCatalogItem> findByArchiveDateBetweenAndAbsolutePathStartsWith(String startDate, String endDate, Optional<String> path) {
+        SimpleDateFormat formatter = new SimpleDateFormat("yyyy-MM-dd");
+        try {
+            Date start = formatter.parse(startDate);
+            Date end = formatter.parse(endDate);
+            if (path.isPresent()) {
+                return fileCatalogItemRepository.findByArchiveDateBetweenAndAbsolutePathStartsWith(start, end, path.get());
+            } else {
+                return fileCatalogItemRepository.findByArchiveDateBetween(start, end);
+            }
+        } catch (ParseException e) {
+            log.error("Failed to parse date for archived items search", e);
+            throw new IllegalArgumentException("Invalid date format. Please use yyyy-MM-dd.");
+        }
+    }
+
+    @Override
     public void performLocationSync(ScanLocationConfig scanlocationconfig) throws CloudBackupException {
+        Instant start = Instant.now();
         notificationService.notifyInfoMessage("Started backup process", scanlocationconfig);
         startCloudBackup(scanlocationconfig);
         int updloadCount = catalogCount.get();
@@ -98,6 +158,7 @@ public class FileCatalogServiceImpl implements FileCatalogService{
         }
         addSummaryEntry(updloadCount,uploadSize,deleteCount,deleteSize,scanlocationconfig);
         log.info("Location: {} uploads: {} with {} bytes, deletes: {} with {} bytes",scanlocationconfig.getScanFolder(),updloadCount,uploadSize,deleteCount,deleteSize);
+        scanDurationTimer.record(Duration.between(start, Instant.now()));
     }
 
     private void startCloudBackup(ScanLocationConfig locationConfig) throws CloudBackupException {
@@ -255,10 +316,13 @@ public class FileCatalogServiceImpl implements FileCatalogService{
         try {
             log.debug("Performing cloud backup for: {} with a size of: {}",fileCatalogItem.absolutePath(), fileCatalogItem.fileSize());
             fileCatalogItem = fileCatalogItemMapper.mapFromFileCatalogItemAddArchiveDate(fileCatalogItem);
+            Instant uploadStart = Instant.now();
             cloudProviderFactory.getCloudProvider(applicationProperties.getCloudProviderConfig().getType()).upload(fileCatalogItem);
             fileCatalogItemRepository.save(fileCatalogItem);
             catalogCount.incrementAndGet();
             catalogSize.addAndGet(fileCatalogItem.fileSize());
+            filesUploadedCounter.increment();
+            uploadTimer.record(Duration.between(uploadStart, Instant.now()));
         } catch (Exception e) {
             log.error("Failed to upload {} to the cloud provider",fileCatalogItem.absolutePath(), e);
             ScanLocationConfig fileLocationConfig = new ScanLocationConfig();
@@ -295,10 +359,13 @@ public class FileCatalogServiceImpl implements FileCatalogService{
 
     private void handleFileCatalogItemDelete(FileCatalogItem filecatalogitem) {
         try{
+            Instant deleteStart = Instant.now();
             cloudProviderFactory.getCloudProvider(applicationProperties.getCloudProviderConfig().getType()).delete(filecatalogitem);
             fileCatalogItemRepository.delete(filecatalogitem);
             catalogCount.incrementAndGet();
             catalogSize.addAndGet(filecatalogitem.fileSize());
+            filesDeletedCounter.increment();
+            deleteTimer.record(Duration.between(deleteStart, Instant.now()));
         }catch(Exception e){
             log.error("Unable to delete {} from the CloudProvider {}, item will be preserved in the catalog database for next iteration attempt", filecatalogitem.absolutePath(),applicationProperties.getCloudProviderConfig().getType(),e);
         }
