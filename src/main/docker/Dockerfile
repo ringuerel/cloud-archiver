@@ -23,7 +23,7 @@ WORKDIR /app
 RUN chown -R cloud-archiver:cloud-archiver /app
 
 # Copy your Java application JAR file into the container
-COPY ./app.jar /app/app.jar
+COPY target/app.jar /app/app.jar
 COPY ./application.yml /app/applicaiton.yml
 
 EXPOSE 8080

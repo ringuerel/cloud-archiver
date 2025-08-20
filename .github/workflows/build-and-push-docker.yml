@@ -29,6 +29,9 @@ jobs:
       - name: Rename JAR for Docker
         run: mv target/cloud-archiver-${{ steps.get_version.outputs.VERSION }}.jar target/app.jar
 
+      - name: Copy JAR to Docker build context
+        run: cp target/app.jar src/main/docker/app.jar
+
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
@@ -38,7 +41,7 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
-          context: .
+          context: src/main/docker
           file: src/main/docker/Dockerfile
           push: true
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/cloud-archiver:${{ steps.get_version.outputs.VERSION }}
