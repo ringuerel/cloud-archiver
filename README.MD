@@ -26,6 +26,55 @@ So if you're considering to use this, leverage on the [GCS calculator](https://c
 - Configurable sync between local locations and the cloud using cron expressions.
 - Configurable delete of cloud items if they were deleted locally (disabled by default).
 - Retrieve archived files by date range: A new endpoint `/file-catalog/archived-range` allows fetching `FileCatalogItem`s based on their `archiveDate` within a specified `startDate` and `endDate` (format: `YYYY-MM-DD`). An optional `path` parameter can be provided to filter results where `absolutePath` starts with the given path.
+- **NEW:** Download files from GCP by specifying a cloud path. The application will restore the file to a local folder configured by `downloadsRoot`, preserving the relative path structure. Missing folders will be created automatically.
+
+## Download from GCP
+
+You can now restore files from your GCP bucket by providing the cloud path. The restored file will be placed under the configured `downloadsRoot` directory, maintaining its relative path. Any necessary parent directories will be created automatically.
+
+### Configuration
+
+Add the following property to your configuration (e.g., `application.yml` or environment variables):
+
+```yaml
+downloadsRoot: /home/user/downloads
+```
+
+This is the root directory where restored files will be placed.
+
+### API Endpoint
+
+A new endpoint is available to trigger the download:
+
+```
+POST /file-catalog/download
+```
+
+**Request body:**
+```json
+{
+  "cloudPath": "/home/user/test2/Authelia123.md"
+}
+```
+
+The file will be restored to a path like:
+```
+/home/user/downloads/test2/Authelia123.md
+```
+
+### Example Docker Compose
+
+Add the following environment variable to your Docker Compose file:
+
+```yaml
+# ...existing code...
+  cloud-archiver:
+    image: your-cloud-archiver-image
+    environment:
+      # ...existing code...
+      DOWNLOADS_ROOT: /home/user/downloads
+    # ...existing code...
+```
 
 ## Considerations
 
@@ -36,6 +85,7 @@ So if you're considering to use this, leverage on the [GCS calculator](https://c
 
 - Full restore from cloud (Get everything based on the bucket instead of metadata)
 - Partial restore from cloud (Get specific items from the bucket leveraging on the database data)
+- **Download files from GCP by path (new)**
 
 # MongoDB
 
