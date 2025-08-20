@@ -2,6 +2,9 @@
 
 This project was created not with the intention of breaking the self-hosted goal but to become partial self-hosted as I couldn't convince my wife that all our photos and videos were safe in several disks at a personal cloud (which is a cloud in the end) so she wanted to have some "big" cloud company involved...So I decided to keep paying for cloud storage but at a very low rate instead, going from $10 month to $0.5 month (aprox) for the same files, I tried to leverage on persisting some metadata to a database in order to reduce the "hits" to the cloud provider and therefore minimize cloud service usage fees.
 
+![Sync workflow example](./docs/Sync%20workflow.png)
+PlantUML Code to the diagram is [here](./docs/sync_workflow.md)
+
 ## What it does?
 
 - It scans the configured folders
@@ -58,6 +61,50 @@ MongoDB Atlas is a fully-managed cloud database that handles all the complexity 
 Current supported cloud providers and how to configure the needed objects:
 
 - [Google Cloud Platform](./gcp/GCP-README.MD) or GCS Cloud Storage
+
+# Adding New Features with Gitflow Maven Plugin
+
+To add a new feature using the gitflow-maven-plugin, follow these steps:
+
+1. Make sure your local repository is up to date with `develop`.
+2. Start a new feature branch:
+    ```
+    mvn gitflow:feature-start -DfeatureName=your-feature-name
+    ```
+3. Implement your changes and commit them to the feature branch.
+4. When your feature is complete, finish the feature:
+    ```
+    mvn gitflow:feature-finish
+    ```
+5. Push your changes to the remote repository:
+    ```
+    git push --all
+    ```
+
+# Release Process
+
+This project uses the **gitflow-maven-plugin** to manage releases. To create a release, follow these steps:
+
+1. Make sure your local repository is up to date with `develop` and `main`.
+2. Run the following command to start a release:
+    ```
+    mvn gitflow:release-start
+    ```
+3. Update version numbers and commit changes as prompted.
+4. Finish the release with:
+    ```
+    mvn gitflow:release-finish
+    ```
+5. Push the changes and tags to the remote repository:
+    ```
+    git push --all && git push --tags
+    ```
+
+For more details, see the [gitflow-maven-plugin documentation](https://github.com/aleksandr-m/gitflow-maven-plugin).
+
+# Continuous Integration & Docker Image Build
+
+Whenever changes are pushed to the `develop` branch, GitHub Actions workflows automatically build the project and create a Docker image. This ensures that the latest development version is always available as a Docker image for
 
 # Docker compose
 
