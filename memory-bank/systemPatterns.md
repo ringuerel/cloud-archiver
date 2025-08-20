@@ -2,7 +2,7 @@
 
 ## System Architecture
 
-The Cloud Archiver is designed as a modular, event-driven application. It follows a microservices-oriented approach, though initially, components might be co-located within a single application.
+The Cloud Archiver is designed as a modular, event-driven application. It follows a microservices-oriented approach, though initially, components might be co-located within a single application. A detailed workflow of the sync process is available in `docs/sync_workflow.md`.
 
 - **Core Archiving Service:** Handles the primary logic of scanning, uploading, and managing files.
 - **File Catalog Service:** Manages the metadata of archived files in a persistent store (e.g., MongoDB).
