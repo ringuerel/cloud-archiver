@@ -23,10 +23,10 @@ WORKDIR /app
 RUN chown -R cloud-archiver:cloud-archiver /app
 
 # Copy your Java application JAR file into the container
-COPY target/app.jar /app/app.jar
-COPY ./application.yml /app/applicaiton.yml
+COPY ./app.jar /app/cloud-archiver.jar
+COPY ./application.yml /app/application.yml
 
 EXPOSE 8080
 
 # Command to run the Java application
-CMD ["java", "-jar", "-Dspring.config.location=./applicaiton.yml", "app.jar"]
+CMD ["java", "-jar", "-Dspring.config.location=./application.yml", "cloud-archiver.jar"]
