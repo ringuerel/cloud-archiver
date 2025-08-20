@@ -34,4 +34,10 @@ public class NoProvider implements CloudProvider{
         return "crc32cmock";
     }
 
+    @Override
+    public void download(String cloudPath, String localTargetPath) throws IOException {
+        // TODO Auto-generated method stub
+        throw new UnsupportedOperationException("Unimplemented method 'download'");
+    }
+
 }

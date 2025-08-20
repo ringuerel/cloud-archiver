@@ -51,6 +51,7 @@ import com.homelab.ringue.cloud.archiver.service.FileCatalogService;
 import com.homelab.ringue.cloud.archiver.service.NotificationService;
 
 import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -60,6 +61,50 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 @Scope("prototype")
 public class FileCatalogServiceImpl implements FileCatalogService{
+    @Override
+    public boolean downloadFromCloud(String cloudPath) {
+        try {
+            String downloadRoot = applicationProperties.getDownloadRoot();
+            if (downloadRoot == null || downloadRoot.isEmpty()) {
+                log.error("downloadRoot is not configured");
+                return false;
+            }
+            var cloudProvider = cloudProviderFactory.getCloudProvider(applicationProperties.getCloudProviderConfig().getType());
+
+            // Compute the relative path from the cloudPath (strip drive letter and leading slash if present)
+            Path cloudPathObj = Paths.get(cloudPath);
+            Path relativePath = cloudPathObj.isAbsolute()
+                ? cloudPathObj.getRoot() == null
+                    ? cloudPathObj
+                    : cloudPathObj.getRoot().relativize(cloudPathObj)
+                : cloudPathObj;
+            Path localTargetPathObj = Paths.get(downloadRoot).resolve(relativePath.toString().replace("/", "\\"));
+            Path parentDir = localTargetPathObj.getParent();
+            if (parentDir != null && !Files.exists(parentDir)) {
+                Files.createDirectories(parentDir);
+            }
+
+            log.info("[GCP] Downloading {} to {}", cloudPath, localTargetPathObj);
+            long startTime = System.nanoTime();
+            cloudProvider.download(cloudPath, localTargetPathObj.toString());
+            long durationMs = (System.nanoTime() - startTime) / 1_000_000;
+
+            long downloadedSize = 0;
+            try {
+                downloadedSize = Files.size(localTargetPathObj);
+            } catch (IOException e) {
+                log.warn("Could not determine downloaded file size for {}", localTargetPathObj);
+            }
+            gcpDownloadsCounter.increment();
+            gcpDownloadBytesSummary.record(downloadedSize);
+
+            log.info("[GCP] Downloaded {} ({} bytes) to {} in {} ms", cloudPath, downloadedSize, localTargetPathObj, durationMs);
+            return true;
+        } catch (Exception e) {
+            log.error("[GCP] Failed to download {} from cloud provider", cloudPath, e);
+            return false;
+        }
+    }
     
     private FileCatalogItemRepository fileCatalogItemRepository;
     private SyncSummaryRepository syncSummaryRepository;
@@ -82,6 +127,10 @@ public class FileCatalogServiceImpl implements FileCatalogService{
     private final Timer deleteTimer;
     private final Timer scanDurationTimer;
     private Gauge filesInCatalogGauge;
+
+    private final Counter gcpDownloadsCounter;
+    private final DistributionSummary gcpUploadBytesSummary;
+    private final DistributionSummary gcpDownloadBytesSummary;
 
 
     @Autowired
@@ -112,6 +161,17 @@ public class FileCatalogServiceImpl implements FileCatalogService{
         this.filesInCatalogGauge = Gauge.builder("cloud_archiver_files_in_catalog", fileCatalogItemRepository, FileCatalogItemRepository::count)
                 .description("Current number of files cataloged in the database")
                 .register(meterRegistry);
+        this.gcpDownloadsCounter = Counter.builder("cloud_archiver_gcp_downloads_total")
+            .description("Total number of GCP download operations")
+            .register(meterRegistry);
+        this.gcpUploadBytesSummary = DistributionSummary.builder("cloud_archiver_gcp_upload_bytes")
+            .description("Total bytes uploaded to GCP")
+            .baseUnit("bytes")
+            .register(meterRegistry);
+        this.gcpDownloadBytesSummary = DistributionSummary.builder("cloud_archiver_gcp_download_bytes")
+            .description("Total bytes downloaded from GCP")
+            .baseUnit("bytes")
+            .register(meterRegistry);
     }
 
     @Override
@@ -270,7 +330,7 @@ public class FileCatalogServiceImpl implements FileCatalogService{
         if(isModifiedOrNewItemItem){
             fileOnDisk = getCrC32CPopulatedItem(fileOnDisk);
             if(fileCatalogItem.isPresent() && fileOnDisk != null && fileOnDisk.crc32c().equals(fileCatalogItem.get().crc32c())){
-                //Leaves updated lastModifiedDate version on the memory cache
+                //Leaves updated lastModifiedDate on the memory cache
                 collectionIdsInMemoryCache.put(fileOnDisk.absolutePath(), fileCatalogItemMapper.mapFromFileCatalogItemUpdateLastModified(fileCatalogItem.get(), fileOnDisk.lastModified()));
                 return null;//Nothing to backup to cloud
             }
@@ -314,17 +374,23 @@ public class FileCatalogServiceImpl implements FileCatalogService{
 
     void performCloudBackup(FileCatalogItem fileCatalogItem){
         try {
-            log.debug("Performing cloud backup for: {} with a size of: {}",fileCatalogItem.absolutePath(), fileCatalogItem.fileSize());
+            log.debug("[GCP] Performing cloud backup for: {} with a size of: {}",fileCatalogItem.absolutePath(), fileCatalogItem.fileSize());
             fileCatalogItem = fileCatalogItemMapper.mapFromFileCatalogItemAddArchiveDate(fileCatalogItem);
             Instant uploadStart = Instant.now();
+            long startTime = System.nanoTime();
             cloudProviderFactory.getCloudProvider(applicationProperties.getCloudProviderConfig().getType()).upload(fileCatalogItem);
+            long durationMs = (System.nanoTime() - startTime) / 1_000_000;
+
+            gcpUploadBytesSummary.record(fileCatalogItem.fileSize());
+
+            log.info("[GCP] Uploaded {} ({} bytes) in {} ms", fileCatalogItem.absolutePath(), fileCatalogItem.fileSize(), durationMs);
             fileCatalogItemRepository.save(fileCatalogItem);
             catalogCount.incrementAndGet();
             catalogSize.addAndGet(fileCatalogItem.fileSize());
             filesUploadedCounter.increment();
             uploadTimer.record(Duration.between(uploadStart, Instant.now()));
         } catch (Exception e) {
-            log.error("Failed to upload {} to the cloud provider",fileCatalogItem.absolutePath(), e);
+            log.error("[GCP] Failed to upload {} to the cloud provider",fileCatalogItem.absolutePath(), e);
             ScanLocationConfig fileLocationConfig = new ScanLocationConfig();
             fileLocationConfig.setScanFolder(fileCatalogItem.absolutePath());
             notificationService.notifyError("Failed to upload "+e.getMessage(),fileLocationConfig);
@@ -360,14 +426,18 @@ public class FileCatalogServiceImpl implements FileCatalogService{
     private void handleFileCatalogItemDelete(FileCatalogItem filecatalogitem) {
         try{
             Instant deleteStart = Instant.now();
+            long startTime = System.nanoTime();
             cloudProviderFactory.getCloudProvider(applicationProperties.getCloudProviderConfig().getType()).delete(filecatalogitem);
+            long durationMs = (System.nanoTime() - startTime) / 1_000_000;
+
+            log.info("[GCP] Deleted {} ({} bytes) in {} ms", filecatalogitem.absolutePath(), filecatalogitem.fileSize(), durationMs);
             fileCatalogItemRepository.delete(filecatalogitem);
             catalogCount.incrementAndGet();
             catalogSize.addAndGet(filecatalogitem.fileSize());
             filesDeletedCounter.increment();
             deleteTimer.record(Duration.between(deleteStart, Instant.now()));
         }catch(Exception e){
-            log.error("Unable to delete {} from the CloudProvider {}, item will be preserved in the catalog database for next iteration attempt", filecatalogitem.absolutePath(),applicationProperties.getCloudProviderConfig().getType(),e);
+            log.error("[GCP] Unable to delete {} from the CloudProvider {}, item will be preserved in the catalog database for next iteration attempt", filecatalogitem.absolutePath(),applicationProperties.getCloudProviderConfig().getType(),e);
         }
     }
 

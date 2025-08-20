@@ -46,6 +46,16 @@ public class FileCatalogController {
         return fileCatalogService.findByArchiveDateBetweenAndAbsolutePathStartsWith(startDate, endDate, path);
     }
 
+    @PostMapping("/download")
+    public ResponseEntity<String> downloadFromCloud(@RequestParam("path") String cloudPath) {
+        boolean success = fileCatalogService.downloadFromCloud(cloudPath);
+        if (success) {
+            return ResponseEntity.ok("Download started for: " + cloudPath);
+        } else {
+            return ResponseEntity.status(500).body("Download failed for: " + cloudPath);
+        }
+    }
+
     @PostMapping("/sync")
     public ResponseEntity<Void> performReconcile(){
         throw new UnsupportedOperationException("Will be available in future versions");

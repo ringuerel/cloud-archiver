@@ -15,4 +15,11 @@ public interface FileCatalogService {
 
     void performLocationSync(ScanLocationConfig scanlocationconfig) throws CloudBackupException;
 
+    /**
+     * Downloads a file or folder from the cloud provider to the local downloadRoot.
+     * @param cloudPath The path in the cloud provider (e.g. /, /folder/, /file.jpg)
+     * @return true if download was successful, false otherwise
+     */
+    boolean downloadFromCloud(String cloudPath);
+
 }
