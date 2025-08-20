@@ -11,6 +11,8 @@ import com.homelab.ringue.cloud.archiver.config.ApplicationProperties;
 import com.homelab.ringue.cloud.archiver.config.ApplicationProperties.ScanLocationConfig;
 import com.homelab.ringue.cloud.archiver.exception.CloudBackupException;
 
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 
@@ -20,6 +22,7 @@ public class TimedTask {
 
     private FileCatalogService fileCatalogService;
     private ApplicationProperties applicationProperties;
+    private final Counter backupTaskRunsCounter;
 
     @PostConstruct
     public void initTask(){
@@ -29,13 +32,17 @@ public class TimedTask {
     }
 
     @Autowired
-    public TimedTask(FileCatalogService fileCatalogService, ApplicationProperties applicationProperties){
+    public TimedTask(FileCatalogService fileCatalogService, ApplicationProperties applicationProperties, MeterRegistry meterRegistry){
         this.fileCatalogService = fileCatalogService;
         this.applicationProperties = applicationProperties;
+        this.backupTaskRunsCounter = Counter.builder("cloud_archiver_backup_task_runs_total")
+                .description("Total number of times the scheduled backup task has executed")
+                .register(meterRegistry);
     }
 
     @Scheduled(cron = "${backup.schedule.cron}")
     public void performScheduledBackup() throws CloudBackupException{
+        backupTaskRunsCounter.increment();
         if(!Optional.ofNullable(applicationProperties.getScanFolders()).isPresent()){
             log.error("FATAL: No configured scan locations, application shutdown");
             System.exit(0);
