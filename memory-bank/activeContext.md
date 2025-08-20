@@ -1,36 +1,163 @@
-# Active Context: Cloud Archiver
+1. Current Work:
+   The task was to create new unit tests for `src/main/java/com/homelab/ringue/cloud/archiver/controller/FileCatalogController.java` using Spring MVC.
 
-## Current Work Focus
+2. Key Technical Concepts:
+   - Spring MVC testing with `@WebMvcTest`
+   - Mocking services with `@MockBean`
+   - Using `MockMvc` to perform HTTP requests and assert responses.
+   - Handling `UnsupportedOperationException` in tests.
+   - Java Records for `FileCatalogItem` (which means no default constructor or setters).
 
-The current focus is on establishing the foundational Memory Bank documentation for the Cloud Archiver project. This involves creating and populating the core Markdown files (`projectbrief.md`, `productContext.md`, `systemPatterns.md`, `techContext.md`, `activeContext.md`, `progress.md`) to ensure a comprehensive understanding of the project's scope, architecture, and technical details after a memory reset.
+3. Relevant Files and Code:
+   - `src/main/java/com/homelab/ringue/cloud/archiver/controller/FileCatalogController.java`: The controller for which tests were written.
+     ```java
+     package com.homelab.ringue.cloud.archiver.controller;
 
-## Recent Changes
+     import java.util.List;
 
-- Created the `memory-bank` directory.
-- Populated `projectbrief.md` with core requirements and project scope.
-- Populated `productContext.md` with the project's purpose, problems solved, and user experience goals.
-- Populated `systemPatterns.md` with system architecture, key technical decisions, design patterns, component relationships, and critical implementation paths.
-- Populated `techContext.md` with technologies used, development setup, technical constraints, dependencies, and tool usage patterns.
+     import org.springframework.beans.factory.annotation.Autowired;
+     import org.springframework.context.annotation.Scope;
+     import org.springframework.http.ResponseEntity;
+     import org.springframework.web.bind.annotation.GetMapping;
+     import org.springframework.web.bind.annotation.PostMapping;
+     import org.springframework.web.bind.annotation.RequestMapping;
+     import org.springframework.web.bind.annotation.RequestParam;
+     import org.springframework.web.bind.annotation.RestController;
 
-## Next Steps
+     import com.homelab.ringue.cloud.archiver.domain.FileCatalogItem;
+     import com.homelab.ringue.cloud.archiver.service.FileCatalogService;
 
-1.  Create and populate `progress.md` to document the current status, what works, what's left, and known issues.
-2.  Review all created Memory Bank files to ensure consistency, accuracy, and completeness.
-3.  Based on the initial task, determine the next actionable development steps for the Cloud Archiver project.
+     @RestController
+     @RequestMapping("file-catalog")
+     @Scope("prototype")
+     public class FileCatalogController {
 
-## Active Decisions and Considerations
+         private FileCatalogService fileCatalogService;
 
-- The Memory Bank is critical for project continuity due to Cline's memory reset characteristic. Its accuracy and completeness are paramount.
-- The initial documentation focuses on high-level overviews, with the understanding that more detailed documentation will be added as features are implemented and refined.
-- The project is currently in its foundational documentation phase, with no active code development yet.
+         @Autowired
+         public FileCatalogController(FileCatalogService fileCatalogService){
+             this.fileCatalogService = fileCatalogService;
+         }
 
-## Important Patterns and Preferences
+         @GetMapping
+         public List<FileCatalogItem> getByFileName(@RequestParam("fileName") String fileName){
+             return fileCatalogService.findByFileNameContains(fileName);
+         }
 
-- **Documentation-Driven Development:** All significant changes and decisions should be reflected in the Memory Bank.
-- **Modularity:** Design components to be as independent as possible to facilitate future expansion and maintenance.
-- **Clarity and Conciseness:** Documentation should be clear, concise, and easy to understand for anyone picking up the project.
+         @GetMapping("/similar")
+         public List<FileCatalogItem> getSimilarByFileName(@RequestParam("fileName") String fileName){
+             return fileCatalogService.findByFileNameSimilar(fileName);
+         }
 
-## Learnings and Project Insights
+         @PostMapping("/sync")
+         public ResponseEntity<Void> performReconcile(){
+             throw new UnsupportedOperationException("Will be available in future versions");
+         }
+     }
+     ```
+   - `src/main/java/com/homelab/ringue/cloud/archiver/domain/FileCatalogItem.java`: The record class used in the controller.
+     ```java
+     package com.homelab.ringue.cloud.archiver.domain;
 
-- The initial setup of the Memory Bank highlights the importance of a structured approach to project documentation.
-- The existing project structure (Java/Spring Boot, Maven, Docker) aligns well with the planned documentation, making it easier to map technical details to the Memory Bank files.
+     import java.time.Instant;
+     import java.util.Date;
+
+     import org.bson.BsonType;
+     import org.bson.codecs.pojo.annotations.BsonId;
+     import org.bson.codecs.pojo.annotations.BsonRepresentation;
+     import org.springframework.data.annotation.Id;
+     import org.springframework.data.mongodb.core.mapping.Document;
+
+     @Document(collection = "file_catalog")
+     public record FileCatalogItem(
+         @Id
+         @BsonId()
+         @BsonRepresentation(BsonType.OBJECT_ID)
+         String absolutePath,
+         String fileName,
+         String fileExtension,
+         String parentFolder,
+         boolean isDirectory,
+         Long fileSize,
+         Date archiveDate,
+         String crc32c,
+         Instant lastModified
+         ) {}
+     ```
+   - `src/test/java/com/homelab/ringue/cloud/archiver/controller/FileCatalogControllerTest.java`: The newly created test file.
+     ```java
+     package com.homelab.ringue.cloud.archiver.controller;
+
+     import com.homelab.ringue.cloud.archiver.domain.FileCatalogItem;
+     import com.homelab.ringue.cloud.archiver.service.FileCatalogService;
+     import org.junit.jupiter.api.Test;
+     import org.springframework.beans.factory.annotation.Autowired;
+     import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+     import org.springframework.boot.test.mock.mockito.MockBean;
+     import org.springframework.http.MediaType;
+     import org.springframework.test.web.servlet.MockMvc;
+
+     import java.time.Instant;
+     import java.util.Arrays;
+     import java.util.Date;
+     import java.util.List;
+
+     import static org.hamcrest.Matchers.is;
+     import static org.mockito.ArgumentMatchers.anyString;
+     import static org.mockito.Mockito.when;
+     import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+     import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+     import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+
+     @WebMvcTest(FileCatalogController.class)
+     public class FileCatalogControllerTest {
+
+         @Autowired
+         private MockMvc mockMvc;
+
+         @MockBean
+         private FileCatalogService fileCatalogService;
+
+         @Test
+         void getByFileName_shouldReturnListOfFileCatalogItems() throws Exception {
+             FileCatalogItem item1 = new FileCatalogItem("path/to/testfile1.txt", "testfile1.txt", "txt", "path/to", false, 100L, new Date(), "crc1", Instant.now());
+             FileCatalogItem item2 = new FileCatalogItem("path/to/testfile2.txt", "testfile2.txt", "txt", "path/to", false, 200L, new Date(), "crc2", Instant.now());
+             List<FileCatalogItem> expectedItems = Arrays.asList(item1, item2);
+
+             when(fileCatalogService.findByFileNameContains(anyString())).thenReturn(expectedItems);
+
+             mockMvc.perform(get("/file-catalog")
+                             .param("fileName", "test")
+                             .contentType(MediaType.APPLICATION_JSON))
+                     .andExpect(status().isOk())
+                     .andExpect(jsonPath("$[0].fileName").value("testfile1.txt"))
+                     .andExpect(jsonPath("$[1].fileName").value("testfile2.txt"));
+         }
+
+         @Test
+         void getSimilarByFileName_shouldReturnListOfFileCatalogItems() throws Exception {
+             FileCatalogItem item1 = new FileCatalogItem("path/to/similarfile1.txt", "similarfile1.txt", "txt", "path/to", false, 150L, new Date(), "crc3", Instant.now());
+             FileCatalogItem item2 = new FileCatalogItem("path/to/similarfile2.txt", "similarfile2.txt", "txt", "path/to", false, 250L, new Date(), "crc4", Instant.now());
+             List<FileCatalogItem> expectedItems = Arrays.asList(item1, item2);
+
+             when(fileCatalogService.findByFileNameSimilar(anyString())).thenReturn(expectedItems);
+
+             mockMvc.perform(get("/file-catalog/similar")
+                             .param("fileName", "similar")
+                             .contentType(MediaType.APPLICATION_JSON))
+                     .andExpect(status().isOk())
+                     .andExpect(jsonPath("$[0].fileName").value("similarfile1.txt"))
+                     .andExpect(jsonPath("$[1].fileName").value("similarfile2.txt"));
+         }
+
+     }
+     ```
+
+4. Problem Solving:
+   - Initial errors were due to `FileCatalogItem` being a Java record, which means it doesn't have a no-argument constructor or setters. This was resolved by instantiating `FileCatalogItem` using its canonical constructor with all arguments.
+   - Missing `Date` and `Instant` imports were added.
+   - The test for `/file-catalog/sync` initially failed because `UnsupportedOperationException` was thrown, and the test was not correctly asserting this. Multiple attempts were made to correctly assert the exception, including using `status().reason()` and direct `assertTrue`/`assertEquals` on `getResolvedException()`.
+   - Finally, the user requested to avoid covering `/file-catalog/sync`, so the `performReconcile_shouldReturnNotImplemented` test method was removed entirely.
+
+5. Pending Tasks and Next Steps:
+   The task of creating new unit tests for `FileCatalogController.java` has been completed, and all remaining tests are passing. The user's feedback to "avoid covering /file-catalog/sync" has been addressed by removing the relevant test.

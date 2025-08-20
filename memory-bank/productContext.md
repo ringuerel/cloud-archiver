@@ -14,7 +14,7 @@ In an increasingly digital world, individuals and small businesses often struggl
 
 ## How It Should Work
 
-The Cloud Archiver should operate primarily in the background, scanning designated local directories for new or modified files. Upon detection, these files will be securely uploaded to the configured cloud storage. A local database will index synchronized files, storing their MD5 checksums and last modification dates. This enables efficient verification and reduces unnecessary cloud access, helping to minimize costs. Users should be able to configure:
+The Cloud Archiver should operate primarily in the background, scanning designated local directories for new or modified files. Upon detection, these files will be securely uploaded to the configured cloud storage. A local database will index synchronized files, storing their crc32c checksums and last modification dates. This enables efficient verification and reduces unnecessary cloud access, helping to minimize costs. Users should be able to configure:
 
 - **Source Directories:** Which local folders to monitor.
 - **Cloud Provider:** The target cloud storage service (e.g., GCP, AWS, Azure).

@@ -11,6 +11,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.Optional;
+
 import com.homelab.ringue.cloud.archiver.domain.FileCatalogItem;
 import com.homelab.ringue.cloud.archiver.service.FileCatalogService;
 
@@ -29,6 +31,19 @@ public class FileCatalogController {
     @GetMapping
     public List<FileCatalogItem> getByFileName(@RequestParam("fileName") String fileName){
         return fileCatalogService.findByFileNameContains(fileName);
+    }
+
+    @GetMapping("/similar")
+    public List<FileCatalogItem> getSimilarByFileName(@RequestParam("fileName") String fileName){
+        return fileCatalogService.findByFileNameSimilar(fileName);
+    }
+
+    @GetMapping("/archived-range")
+    public List<FileCatalogItem> getArchivedItemsByDateRange(
+            @RequestParam("startDate") String startDate,
+            @RequestParam("endDate") String endDate,
+            @RequestParam(value = "path", required = false) Optional<String> path){
+        return fileCatalogService.findByArchiveDateBetweenAndAbsolutePathStartsWith(startDate, endDate, path);
     }
 
     @PostMapping("/sync")
