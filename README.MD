@@ -170,12 +170,21 @@ On push to `develop`, GitHub Actions build the project and create a Docker image
 
 ## Docker Compose Example
 
+Below is a minimal example. For a complete configuration, see [`./docker/cloud-archiver.yml`](./docker/cloud-archiver.yml):
+
 ```yaml
-# ...existing code...
+version: '3.8'
+services:
   cloud-archiver:
     image: your-cloud-archiver-image
     environment:
-      # ...existing code...
       DOWNLOADS_ROOT: /home/user/downloads
-    # ...existing code...
+      # Add other environment variables as needed
+    volumes:
+      - /path/to/local/folders:/data
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
 ```
+
+For a full example with all options, refer to [`./docker/cloud-archiver.yml`](./docker/cloud-archiver.yml).
