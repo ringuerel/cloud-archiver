@@ -42,25 +42,38 @@ downloadsRoot: /home/user/downloads
 
 This is the root directory where restored files will be placed.
 
-### API Endpoint
+# API Endpoints
 
-A new endpoint is available to trigger the download:
+This section details the REST endpoints available in the Cloud Archiver application.
 
-```
-POST /file-catalog/download
-```
+## Swagger UI
+The API documentation can be accessed via Swagger UI at: `http://host:8080/cloud-archiver/swagger-ui/index.html`
 
-**Request body:**
-```json
-{
-  "cloudPath": "/home/user/test2/Authelia123.md"
-}
-```
+## GET /file-catalog
+*   **Description:** Retrieves a list of `FileCatalogItem`s by searching for a file name.
+*   **Parameters:** `fileName` (String, required) - The name or part of the name of the file to search for.
+*   **Example Usage:** `GET /file-catalog?fileName=myphoto`
 
-The file will be restored to a path like:
-```
-/home/user/downloads/test2/Authelia123.md
-```
+## GET /file-catalog/similar
+*   **Description:** Retrieves a list of `FileCatalogItem`s that have similar file names.
+*   **Parameters:** `fileName` (String, required) - The file name to find similar entries for.
+*   **Example Usage:** `GET /file-catalog/similar?fileName=document`
+
+## GET /file-catalog/archived-range
+*   **Description:** Retrieves a list of `FileCatalogItem`s archived within a specified date range, with an optional path filter.
+*   **Parameters:**
+    *   `startDate` (String, required) - The start date in `YYYY-MM-DD` format.
+    *   `endDate` (String, required) - The end date in `YYYY-MM-DD` format.
+    *   `path` (String, optional) - An optional path to filter results where `absolutePath` starts with the given path.
+*   **Example Usage:** `GET /file-catalog/archived-range?startDate=2023-01-01&endDate=2023-12-31&path=/photos/vacation`
+
+## POST /file-catalog/download
+*   **Description:** Initiates the download of a file from the cloud to a local `downloadsRoot` directory, preserving the relative path structure.
+*   **Parameters:** `path` (String, required) - The cloud path of the file to download.
+*   **Example Usage:** `POST /file-catalog/download?path=/home/user/test2/Authelia123.md`
+
+## POST /file-catalog/sync
+*   **Description:** This endpoint is currently unsupported and will be available in future versions.
 
 ### Example Docker Compose
 
