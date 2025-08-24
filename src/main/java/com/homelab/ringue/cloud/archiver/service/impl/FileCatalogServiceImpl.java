@@ -56,6 +56,7 @@ import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import lombok.extern.slf4j.Slf4j;
+import com.homelab.ringue.cloud.archiver.service.SyncLockManager;
 
 @Service
 @Slf4j
@@ -119,6 +120,7 @@ public class FileCatalogServiceImpl implements FileCatalogService{
     private ApplicationProperties applicationProperties;
 
     private NotificationService notificationService;
+    private SyncLockManager syncLockManager;
 
     private final MeterRegistry meterRegistry;
     private final Counter filesUploadedCounter;
@@ -134,13 +136,14 @@ public class FileCatalogServiceImpl implements FileCatalogService{
 
 
     @Autowired
-    public FileCatalogServiceImpl(FileCatalogItemRepository fileCatalogItemRepository, FileCatalogItemMapper fileCatalogItemMapper,CloudProviderFactory cloudProviderFactory, ApplicationProperties applicationProperties,SyncSummaryRepository syncSummaryRepository, NotificationService notificationService, MeterRegistry meterRegistry){
+    public FileCatalogServiceImpl(FileCatalogItemRepository fileCatalogItemRepository, FileCatalogItemMapper fileCatalogItemMapper,CloudProviderFactory cloudProviderFactory, ApplicationProperties applicationProperties,SyncSummaryRepository syncSummaryRepository, NotificationService notificationService, SyncLockManager syncLockManager, MeterRegistry meterRegistry){
         this.fileCatalogItemRepository = fileCatalogItemRepository;
         this.fileCatalogItemMapper = fileCatalogItemMapper;
         this.cloudProviderFactory = cloudProviderFactory;
         this.applicationProperties = applicationProperties;
         this.syncSummaryRepository = syncSummaryRepository;
         this.notificationService = notificationService;
+        this.syncLockManager = syncLockManager;
         this.meterRegistry = meterRegistry;
 
         this.filesUploadedCounter = Counter.builder("cloud_archiver_files_uploaded_total")
@@ -206,7 +209,7 @@ public class FileCatalogServiceImpl implements FileCatalogService{
         Instant start = Instant.now();
         notificationService.notifyInfoMessage("Started backup process", scanlocationconfig);
         startCloudBackup(scanlocationconfig);
-        int updloadCount = catalogCount.get();
+        int uploadCount = catalogCount.get();
         long uploadSize = catalogSize.get();
         int deleteCount = 0;
         long deleteSize = 0;
@@ -216,9 +219,39 @@ public class FileCatalogServiceImpl implements FileCatalogService{
             deleteCount = catalogCount.get();
             deleteSize = catalogSize.get();
         }
-        addSummaryEntry(updloadCount,uploadSize,deleteCount,deleteSize,scanlocationconfig);
-        log.info("Location: {} uploads: {} with {} bytes, deletes: {} with {} bytes",scanlocationconfig.getScanFolder(),updloadCount,uploadSize,deleteCount,deleteSize);
+        addSummaryEntry(uploadCount,uploadSize,deleteCount,deleteSize,scanlocationconfig);
+        log.info("Location: {} uploads: {} with {} bytes, deletes: {} with {} bytes",scanlocationconfig.getScanFolder(),uploadCount,uploadSize,deleteCount,deleteSize);
         scanDurationTimer.record(Duration.between(start, Instant.now()));
+    }
+
+    @Override
+    public boolean startAllLocationSyncs() {
+        if (!syncLockManager.acquireLock(applicationProperties.getSyncLockTimeoutSeconds())) {
+            log.info("Skipping sync process as another sync is already running or the lock is stale.");
+            return false;
+        }
+
+        try {
+            log.info("Starting all location syncs.");
+            List<ScanLocationConfig> scanLocations = applicationProperties.getScanFolders();
+            if (scanLocations == null || scanLocations.isEmpty()) {
+                log.warn("No scan folders configured. Skipping sync.");
+                return true;
+            }
+
+            for (ScanLocationConfig locationConfig : scanLocations) {
+                try {
+                    performLocationSync(locationConfig);
+                } catch (CloudBackupException e) {
+                    log.error("Error during sync for location {}: {}", locationConfig.getScanFolder(), e.getMessage());
+                    notificationService.notifyError("Error during sync for location " + locationConfig.getScanFolder() + ": " + e.getMessage(), locationConfig);
+                }
+            }
+            log.info("All location syncs completed.");
+            return true;
+        } finally {
+            syncLockManager.releaseLock();
+        }
     }
 
     private void startCloudBackup(ScanLocationConfig locationConfig) throws CloudBackupException {

@@ -27,6 +27,7 @@ public class ApplicationProperties {
     private NotificationsConfig notificationsConfig;
     private Integer crc32cBufferSize;
     private String downloadRoot;
+    private Long syncLockTimeoutSeconds;
 
     public int getCrc32cBufferSize(){
         return Optional.ofNullable(crc32cBufferSize).orElse(1024);
@@ -34,6 +35,10 @@ public class ApplicationProperties {
 
     public String getDownloadRoot() {
         return downloadRoot;
+    }
+
+    public Long getSyncLockTimeoutSeconds() {
+        return Optional.ofNullable(syncLockTimeoutSeconds).orElse(3600L); // Default to 1 hour
     }
 
     @Data
