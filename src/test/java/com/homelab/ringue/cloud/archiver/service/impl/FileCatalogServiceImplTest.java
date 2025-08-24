@@ -42,6 +42,7 @@ import com.homelab.ringue.cloud.archiver.repository.FileCatalogItemRepository;
 import com.homelab.ringue.cloud.archiver.repository.SyncSummaryRepository;
 import com.homelab.ringue.cloud.archiver.service.FileCatalogItemMapper;
 import com.homelab.ringue.cloud.archiver.service.NotificationService;
+import com.homelab.ringue.cloud.archiver.service.SyncLockManager;
 
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.MeterRegistry.Config;
@@ -93,6 +94,9 @@ public class FileCatalogServiceImplTest {
     @Mock
     private Timer scanDurationTimerMock;
 
+    @Mock
+    private SyncLockManager syncLockManager;
+
     @BeforeEach
     public void setupTests() throws IOException{
         MockitoAnnotations.openMocks(this);
@@ -100,7 +104,17 @@ public class FileCatalogServiceImplTest {
         Mockito.when(meterRegistry.timer(Mockito.anyString())).thenReturn(scanDurationTimerMock);
         Mockito.doNothing().when(scanDurationTimerMock).record(Mockito.any(java.time.Duration.class));
 
-        serviceImplSpy = Mockito.spy(new FileCatalogServiceImpl(fileCatalogItemRepository, fileCatalogItemMapper, cloudProviderFactory, applicationProperties, summaryRepository, notificationService, meterRegistry));
+        // Inject mocked SyncLockManager into the service constructor
+        serviceImplSpy = Mockito.spy(new FileCatalogServiceImpl(
+            fileCatalogItemRepository,
+            fileCatalogItemMapper,
+            cloudProviderFactory,
+            applicationProperties,
+            summaryRepository,
+            notificationService,
+            syncLockManager,
+            meterRegistry
+        ));
         // Inject mock scanDurationTimer into serviceImplSpy using reflection
         try {
             java.lang.reflect.Field scanDurationTimerField = FileCatalogServiceImpl.class.getDeclaredField("scanDurationTimer");
@@ -109,6 +123,8 @@ public class FileCatalogServiceImplTest {
         } catch (NoSuchFieldException | IllegalAccessException e) {
             throw new RuntimeException("Failed to inject scanDurationTimer mock", e);
         }
+        // Default behavior for tests
+        Mockito.when(syncLockManager.acquireLock(Mockito.anyLong())).thenReturn(true);
         Mockito.when(scanLocationConfigMock.getScanFolder()).thenReturn(TEST_SCAN_FOLDER);
         Mockito.when(applicationProperties.getCloudProviderConfig()).thenReturn(cloudProviderConfig);
         Mockito.when(cloudProviderConfig.getType()).thenReturn(CloudProviders.NO_PROVIDER);

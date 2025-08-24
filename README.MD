@@ -37,6 +37,7 @@ PlantUML Code to the diagram is [here](./docs/sync_workflow.md)
 - Configurable sync schedules using cron expressions.
 - Retrieve archived files by date range and optional path filter.
 - **NEW:** Download files from GCP by specifying a cloud path, restoring to a local folder.
+- **NEW:** Trigger manual sync with concurrency control: only one sync process can run at a time, with a configurable timeout.
 
 ---
 
@@ -82,7 +83,10 @@ API documentation is available via Swagger UI:
 - **Example:** `POST /file-catalog/download?path=/home/user/test2/Authelia123.md`
 
 ### POST /file-catalog/sync
-- **Description:** (Unsupported) Future endpoint for sync.
+- **Description:** Initiates a full synchronization process for all configured scan locations. This endpoint prevents concurrent syncs by using a lock mechanism. If a sync is already running or a lock is stale (configurable via `application.sync-lock-timeout-seconds`), it will return a conflict status.
+- **Responses:**
+    - `200 OK`: Sync process initiated successfully.
+    - `409 Conflict`: Sync process skipped; another sync is already running or the lock is stale.
 
 ---
 

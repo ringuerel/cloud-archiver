@@ -1,9 +1,11 @@
 package com.homelab.ringue.cloud.archiver.controller;
 
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Scope;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -11,10 +13,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.Optional;
-
 import com.homelab.ringue.cloud.archiver.domain.FileCatalogItem;
 import com.homelab.ringue.cloud.archiver.service.FileCatalogService;
+
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -88,13 +89,19 @@ public class FileCatalogController {
         }
     }
 
-    @Operation(summary = "Perform reconciliation (sync)",
-               description = "Initiates a reconciliation process for file catalog items. (Currently unsupported)",
+    @Operation(summary = "Trigger a manual sync process",
+               description = "Initiates a full synchronization process for all configured scan locations. This endpoint will prevent concurrent syncs by checking a lock. If a sync is already running, it will return a conflict status.",
                responses = {
-                   @ApiResponse(responseCode = "501", description = "Not Implemented")
+                   @ApiResponse(responseCode = "200", description = "Sync process initiated successfully"),
+                   @ApiResponse(responseCode = "409", description = "Sync process skipped: another sync is already running")
                })
     @PostMapping("/sync")
-    public ResponseEntity<Void> performReconcile(){
-        throw new UnsupportedOperationException("Will be available in future versions");
+    public ResponseEntity<String> performReconcile(){
+        boolean syncStarted = fileCatalogService.startAllLocationSyncs();
+        if (syncStarted) {
+            return ResponseEntity.ok("Sync process initiated successfully.");
+        } else {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body("Sync process skipped: another sync is already running.");
+        }
     }
 }
