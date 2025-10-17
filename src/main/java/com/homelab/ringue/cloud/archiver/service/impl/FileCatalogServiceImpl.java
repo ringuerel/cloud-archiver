@@ -74,12 +74,16 @@ public class FileCatalogServiceImpl implements FileCatalogService{
 
             // Compute the relative path from the cloudPath (strip drive letter and leading slash if present)
             Path cloudPathObj = Paths.get(cloudPath);
-            Path relativePath = cloudPathObj.isAbsolute()
+            // Construct local path in a platform-independent way
+            String relative = cloudPathObj.isAbsolute()
                 ? cloudPathObj.getRoot() == null
-                    ? cloudPathObj
-                    : cloudPathObj.getRoot().relativize(cloudPathObj)
-                : cloudPathObj;
-            Path localTargetPathObj = Paths.get(downloadRoot).resolve(relativePath.toString().replace("/", "\\"));
+                    ? cloudPathObj.toString()
+                    : cloudPathObj.getRoot().relativize(cloudPathObj).toString()
+                : cloudPathObj.toString();
+
+            // Remove leading slashes for splitting
+            relative = relative.replaceFirst("^[/\\\\]+", "");
+            Path localTargetPathObj = Paths.get(downloadRoot).resolve(relative).normalize();
             Path parentDir = localTargetPathObj.getParent();
             if (parentDir != null && !Files.exists(parentDir)) {
                 Files.createDirectories(parentDir);
@@ -92,9 +96,26 @@ public class FileCatalogServiceImpl implements FileCatalogService{
 
             long downloadedSize = 0;
             try {
-                downloadedSize = Files.size(localTargetPathObj);
+                // Calculate downloaded size, handling directories correctly
+                if (Files.isRegularFile(localTargetPathObj)) {
+                    downloadedSize = Files.size(localTargetPathObj);
+                } else if (Files.isDirectory(localTargetPathObj)) {
+                    // Sum sizes of all files within the directory
+                    try (Stream<Path> walk = Files.walk(localTargetPathObj)) {
+                        downloadedSize = walk.filter(Files::isRegularFile)
+                                           .mapToLong(p -> {
+                                               try {
+                                                   return Files.size(p);
+                                               } catch (IOException e) {
+                                                   log.warn("Could not determine size for file {}: {}", p, e.getMessage());
+                                                   return 0L;
+                                               }
+                                           })
+                                           .sum();
+                    }
+                }
             } catch (IOException e) {
-                log.warn("Could not determine downloaded file size for {}", localTargetPathObj);
+                log.warn("Could not determine downloaded file size for {}", localTargetPathObj, e);
             }
             gcpDownloadsCounter.increment();
             gcpDownloadBytesSummary.record(downloadedSize);
@@ -121,7 +142,6 @@ public class FileCatalogServiceImpl implements FileCatalogService{
 
     private NotificationService notificationService;
     private SyncLockManager syncLockManager;
-
     private final MeterRegistry meterRegistry;
     private final Counter filesUploadedCounter;
     private final Counter filesDeletedCounter;
