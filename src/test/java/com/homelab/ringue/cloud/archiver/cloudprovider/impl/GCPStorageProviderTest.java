@@ -34,8 +34,8 @@ class GCPStorageProviderTest {
 
     @Test
     void testDownloadSingleFile() throws IOException {
-        String cloudPath = "immich/library/admin/2008/2008-12-31/AbuelaBernardina.jpg";
-        String localTargetPath = "C:/downloads/immich/library/admin/2008/2008-12-31/AbuelaBernardina.jpg";
+        String cloudPath = "immich/external/johan/whatsapp/MarthaYSofiConTias.jpeg";
+        String localTargetPath = "C:/downloads";
         doReturn(storage).when(gcpStorageProvider).getConfiguredStorage(any());
         when(applicationProperties.getCloudProviderConfig()).thenReturn(mock(ApplicationProperties.CloudProviderConfig.class));
         when(applicationProperties.getCloudProviderConfig().getBucketName()).thenReturn("bucket");
@@ -44,7 +44,11 @@ class GCPStorageProviderTest {
         doNothing().when(blob).downloadTo(any(Path.class));
 
         gcpStorageProvider.download(cloudPath, localTargetPath);
-        verify(blob, times(1)).downloadTo(any(Path.class));
+
+        ArgumentCaptor<Path> pathCaptor = ArgumentCaptor.forClass(Path.class);
+        verify(blob).downloadTo(pathCaptor.capture());
+        Path capturedPath = pathCaptor.getValue();
+        assertEquals("C:\\downloads\\immich\\external\\johan\\whatsapp\\MarthaYSofiConTias.jpeg", capturedPath.toString());
     }
 
     @Test

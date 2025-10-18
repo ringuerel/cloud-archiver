@@ -60,7 +60,7 @@ public class GCPStorageProvider implements CloudProvider{
             if (blob == null) {
                 throw new FileNotFoundException("Cloud file not found: " + cloudPath);
             }
-            java.nio.file.Path targetFile = java.nio.file.Paths.get(localTargetPath);
+            java.nio.file.Path targetFile = java.nio.file.Paths.get(localTargetPath, cloudPath);
             downloadBlobToPath(blob, targetFile);
         }
     }

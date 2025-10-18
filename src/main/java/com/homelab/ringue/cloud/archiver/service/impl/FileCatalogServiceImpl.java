@@ -72,26 +72,12 @@ public class FileCatalogServiceImpl implements FileCatalogService{
             }
             var cloudProvider = cloudProviderFactory.getCloudProvider(applicationProperties.getCloudProviderConfig().getType());
 
-            // Compute the relative path from the cloudPath (strip drive letter and leading slash if present)
-            Path cloudPathObj = Paths.get(cloudPath);
-            // Construct local path in a platform-independent way
-            String relative = cloudPathObj.isAbsolute()
-                ? cloudPathObj.getRoot() == null
-                    ? cloudPathObj.toString()
-                    : cloudPathObj.getRoot().relativize(cloudPathObj).toString()
-                : cloudPathObj.toString();
-
-            // Remove leading slashes for splitting
-            relative = relative.replaceFirst("^[/\\\\]+", "");
-            Path localTargetPathObj = Paths.get(downloadRoot).resolve(relative).normalize();
-            Path parentDir = localTargetPathObj.getParent();
-            if (parentDir != null && !Files.exists(parentDir)) {
-                Files.createDirectories(parentDir);
-            }
-
-            log.info("[GCP] Downloading {} to {}", cloudPath, localTargetPathObj);
+            // The download method now handles the creation of the full path
+            Path localTargetPathObj = Paths.get(downloadRoot, cloudPath);
+            
+            log.info("[GCP] Downloading {} to {}", cloudPath, localTargetPathObj.toString());
             long startTime = System.nanoTime();
-            cloudProvider.download(cloudPath, localTargetPathObj.toString());
+            cloudProvider.download(cloudPath, downloadRoot);
             long durationMs = (System.nanoTime() - startTime) / 1_000_000;
 
             long downloadedSize = 0;
