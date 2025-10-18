@@ -48,7 +48,8 @@ class GCPStorageProviderTest {
         ArgumentCaptor<Path> pathCaptor = ArgumentCaptor.forClass(Path.class);
         verify(blob).downloadTo(pathCaptor.capture());
         Path capturedPath = pathCaptor.getValue();
-        assertEquals("C:\\downloads\\immich\\external\\johan\\whatsapp\\MarthaYSofiConTias.jpeg", capturedPath.toString());
+        Path expectedPath = java.nio.file.Paths.get(localTargetPath, cloudPath);
+        assertEquals(expectedPath, capturedPath);
     }
 
     @Test
