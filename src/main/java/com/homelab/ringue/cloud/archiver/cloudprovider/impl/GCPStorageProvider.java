@@ -37,25 +37,41 @@ public class GCPStorageProvider implements CloudProvider{
     }
     @Override
     public void download(String cloudPath, String localTargetPath) throws IOException {
-        String normalizedCloudPath = cloudPath.replaceAll("\\\\", "/");
+        String normalizedCloudPathForGcp = cloudPath.replaceAll("\\\\", "/");
         String gcpBucketName = applicationProperties.getCloudProviderConfig().getBucketName();
         String gcpProjectId = applicationProperties.getCloudProviderConfig().getProjectId();
         Storage storage = getConfiguredStorage(gcpProjectId);
 
-        if (normalizedCloudPath.endsWith("/")) {
-            Iterable<Blob> blobs = storage.list(gcpBucketName, Storage.BlobListOption.prefix(normalizedCloudPath)).iterateAll();
+        if (normalizedCloudPathForGcp.endsWith("/")) {
+            Iterable<Blob> blobs = storage.list(gcpBucketName, Storage.BlobListOption.prefix(normalizedCloudPathForGcp)).iterateAll();
             for (Blob blob : blobs) {
-                java.nio.file.Path targetFile = Paths.get(localTargetPath).resolve(Paths.get(blob.getName()));
+                java.nio.file.Path targetFile = buildLocalFilePath(localTargetPath, blob.getName());
                 downloadBlobToPath(blob, targetFile);
             }
         } else {
-            Blob blob = storage.get(gcpBucketName, normalizedCloudPath);
+            Blob blob = storage.get(gcpBucketName, normalizedCloudPathForGcp);
             if (blob == null) {
-                throw new FileNotFoundException("Cloud file not found: " + normalizedCloudPath);
+                throw new FileNotFoundException("Cloud file not found: " + normalizedCloudPathForGcp);
             }
-            java.nio.file.Path targetFile = Paths.get(localTargetPath).resolve(Paths.get(blob.getName()));
+            java.nio.file.Path targetFile = buildLocalFilePath(localTargetPath, blob.getName());
             downloadBlobToPath(blob, targetFile);
         }
+    }
+
+    /**
+     * Build the local filesystem path for a cloud object.
+     * Ensures cloud object names with backslashes are normalized to forward slashes
+     * and appends the normalized cloud object path to the local root.
+     */
+    java.nio.file.Path buildLocalFilePath(String localRoot, String cloudObjectName) {
+        if (localRoot == null) {
+            throw new IllegalArgumentException("localRoot cannot be null");
+        }
+        if (cloudObjectName == null) {
+            throw new IllegalArgumentException("cloudObjectName cannot be null");
+        }
+        String normalized = cloudObjectName.replaceAll("\\\\", "/");
+        return java.nio.file.Paths.get(localRoot, normalized);
     }
 
     private ApplicationProperties applicationProperties;
