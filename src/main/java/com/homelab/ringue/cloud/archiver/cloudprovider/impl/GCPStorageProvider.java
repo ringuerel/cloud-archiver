@@ -37,30 +37,23 @@ public class GCPStorageProvider implements CloudProvider{
     }
     @Override
     public void download(String cloudPath, String localTargetPath) throws IOException {
+        String normalizedCloudPath = cloudPath.replaceAll("\\\\", "/");
         String gcpBucketName = applicationProperties.getCloudProviderConfig().getBucketName();
         String gcpProjectId = applicationProperties.getCloudProviderConfig().getProjectId();
         Storage storage = getConfiguredStorage(gcpProjectId);
 
-        if (cloudPath.endsWith("/")) {
-            Iterable<Blob> blobs = storage.list(gcpBucketName, Storage.BlobListOption.prefix(cloudPath), Storage.BlobListOption.currentDirectory()).iterateAll();
+        if (normalizedCloudPath.endsWith("/")) {
+            Iterable<Blob> blobs = storage.list(gcpBucketName, Storage.BlobListOption.prefix(normalizedCloudPath)).iterateAll();
             for (Blob blob : blobs) {
-                if (blob.isDirectory()) {
-                    // Recursively download contents of the directory
-                    String subDirCloudPath = blob.getName();
-                    String subDirLocalPath = java.nio.file.Paths.get(localTargetPath, subDirCloudPath.substring(cloudPath.length())).toString();
-                    download(subDirCloudPath + "/", subDirLocalPath);
-                } else {
-                    String relativePath = blob.getName().substring(cloudPath.length());
-                    java.nio.file.Path targetFile = java.nio.file.Paths.get(localTargetPath, relativePath);
-                    downloadBlobToPath(blob, targetFile);
-                }
+                java.nio.file.Path targetFile = Paths.get(localTargetPath).resolve(Paths.get(blob.getName()));
+                downloadBlobToPath(blob, targetFile);
             }
         } else {
-            Blob blob = storage.get(gcpBucketName, cloudPath);
+            Blob blob = storage.get(gcpBucketName, normalizedCloudPath);
             if (blob == null) {
-                throw new FileNotFoundException("Cloud file not found: " + cloudPath);
+                throw new FileNotFoundException("Cloud file not found: " + normalizedCloudPath);
             }
-            java.nio.file.Path targetFile = java.nio.file.Paths.get(localTargetPath, cloudPath);
+            java.nio.file.Path targetFile = Paths.get(localTargetPath).resolve(Paths.get(blob.getName()));
             downloadBlobToPath(blob, targetFile);
         }
     }

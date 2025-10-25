@@ -41,6 +41,7 @@ class GCPStorageProviderTest {
         when(applicationProperties.getCloudProviderConfig().getBucketName()).thenReturn("bucket");
         when(applicationProperties.getCloudProviderConfig().getProjectId()).thenReturn("project");
         when(storage.get("bucket", cloudPath)).thenReturn(blob);
+        when(blob.getName()).thenReturn(cloudPath);
         doNothing().when(blob).downloadTo(any(Path.class));
 
         gcpStorageProvider.download(cloudPath, localTargetPath);
@@ -66,9 +67,8 @@ class GCPStorageProviderTest {
         doNothing().when(fileBlob).downloadTo(any(Path.class));
     Iterable<Blob> blobs = java.util.List.of(fileBlob);
     Storage.BlobListOption prefixOption = Storage.BlobListOption.prefix(cloudPath);
-    Storage.BlobListOption dirOption = Storage.BlobListOption.currentDirectory();
     Page<Blob> pageMock = mock(Page.class);
-    when(storage.list(eq("bucket"), eq(prefixOption), eq(dirOption))).thenReturn(pageMock);
+    when(storage.list(eq("bucket"), any(Storage.BlobListOption.class))).thenReturn(pageMock);
     when(pageMock.iterateAll()).thenReturn(blobs);
 
     gcpStorageProvider.download(cloudPath, localTargetPath);
