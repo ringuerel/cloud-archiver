@@ -76,6 +76,8 @@ services:
       - SPRING_DATA_MONGODB_DATABASE=your-mongo-database-name
       # Mongo connection string to the database
       - SPRING_DATA_MONGODB_URI=mongo-connection-string-to-the-db
+      # Add the new configuration for download root
+      - APPLICATION_DOWNLOADROOT=/home/user/downloads
     volumes:
       - /mnt/somedisk/immich/library/library/:/immich/library
       - /mnt/somedisk/anotherlocation/:/anotherlocation

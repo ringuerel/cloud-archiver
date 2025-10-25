@@ -30,6 +30,49 @@ import lombok.extern.slf4j.Slf4j;
 @Qualifier("gcp")
 @Slf4j
 public class GCPStorageProvider implements CloudProvider{
+    private void downloadBlobToPath(Blob blob, java.nio.file.Path targetFile) throws IOException {
+        java.nio.file.Files.createDirectories(targetFile.getParent());
+        blob.downloadTo(targetFile);
+        log.info("Downloaded file {} to {}", blob.getName(), targetFile);
+    }
+    @Override
+    public void download(String cloudPath, String localTargetPath) throws IOException {
+        String normalizedCloudPathForGcp = cloudPath.replaceAll("\\\\", "/");
+        String gcpBucketName = applicationProperties.getCloudProviderConfig().getBucketName();
+        String gcpProjectId = applicationProperties.getCloudProviderConfig().getProjectId();
+        Storage storage = getConfiguredStorage(gcpProjectId);
+
+        if (normalizedCloudPathForGcp.endsWith("/")) {
+            Iterable<Blob> blobs = storage.list(gcpBucketName, Storage.BlobListOption.prefix(normalizedCloudPathForGcp)).iterateAll();
+            for (Blob blob : blobs) {
+                java.nio.file.Path targetFile = buildLocalFilePath(localTargetPath, blob.getName());
+                downloadBlobToPath(blob, targetFile);
+            }
+        } else {
+            Blob blob = storage.get(gcpBucketName, normalizedCloudPathForGcp);
+            if (blob == null) {
+                throw new FileNotFoundException("Cloud file not found: " + normalizedCloudPathForGcp);
+            }
+            java.nio.file.Path targetFile = buildLocalFilePath(localTargetPath, blob.getName());
+            downloadBlobToPath(blob, targetFile);
+        }
+    }
+
+    /**
+     * Build the local filesystem path for a cloud object.
+     * Ensures cloud object names with backslashes are normalized to forward slashes
+     * and appends the normalized cloud object path to the local root.
+     */
+    java.nio.file.Path buildLocalFilePath(String localRoot, String cloudObjectName) {
+        if (localRoot == null) {
+            throw new IllegalArgumentException("localRoot cannot be null");
+        }
+        if (cloudObjectName == null) {
+            throw new IllegalArgumentException("cloudObjectName cannot be null");
+        }
+        String normalized = cloudObjectName.replaceAll("\\\\", "/");
+        return java.nio.file.Paths.get(localRoot, normalized);
+    }
 
     private ApplicationProperties applicationProperties;
 
@@ -80,7 +123,7 @@ public class GCPStorageProvider implements CloudProvider{
         return BlobId.of(gcpBucketName, gcpObjectName);
     }
 
-    private Storage getConfiguredStorage(String gcpProjectId) throws FileNotFoundException, IOException {
+    Storage getConfiguredStorage(String gcpProjectId) throws FileNotFoundException, IOException {
         Credentials providedCredentials = setupCredentials();
         Storage storage = StorageOptions.newBuilder()
         .setCredentials(providedCredentials)

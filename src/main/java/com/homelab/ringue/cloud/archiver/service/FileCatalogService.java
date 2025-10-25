@@ -15,4 +15,18 @@ public interface FileCatalogService {
 
     void performLocationSync(ScanLocationConfig scanlocationconfig) throws CloudBackupException;
 
+    /**
+     * Initiates the synchronization process for all configured scan locations,
+     * ensuring only one sync process runs at a time using a lock mechanism.
+     * @return true if the sync process started, false if it was skipped due to an active lock.
+     */
+    boolean startAllLocationSyncs();
+
+    /**
+     * Downloads a file or folder from the cloud provider to the local downloadRoot.
+     * @param cloudPath The path in the cloud provider (e.g. /, /folder/, /file.jpg)
+     * @return true if download was successful, false otherwise
+     */
+    boolean downloadFromCloud(String cloudPath);
+
 }
