@@ -53,6 +53,7 @@ import com.homelab.ringue.cloud.archiver.service.NotificationService;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import lombok.extern.slf4j.Slf4j;
@@ -129,16 +130,16 @@ public class FileCatalogServiceImpl implements FileCatalogService{
     private NotificationService notificationService;
     private SyncLockManager syncLockManager;
     private final MeterRegistry meterRegistry;
-    private final Counter filesUploadedCounter;
-    private final Counter filesDeletedCounter;
-    private final Timer uploadTimer;
-    private final Timer deleteTimer;
-    private final Timer scanDurationTimer;
+    private Counter filesUploadedCounter;
+    private Counter filesDeletedCounter;
+    private Timer uploadTimer;
+    private Timer deleteTimer;
+    private Timer scanDurationTimer;
     private Gauge filesInCatalogGauge;
 
-    private final Counter gcpDownloadsCounter;
-    private final DistributionSummary gcpUploadBytesSummary;
-    private final DistributionSummary gcpDownloadBytesSummary;
+    private Counter gcpDownloadsCounter;
+    private DistributionSummary gcpUploadBytesSummary;
+    private DistributionSummary gcpDownloadBytesSummary;
 
 
     @Autowired
@@ -152,6 +153,10 @@ public class FileCatalogServiceImpl implements FileCatalogService{
         this.syncLockManager = syncLockManager;
         this.meterRegistry = meterRegistry;
 
+        registerMetrics();
+    }
+
+    private void registerMetrics() {
         this.filesUploadedCounter = Counter.builder("cloud_archiver_files_uploaded_total")
                 .description("Total number of files successfully uploaded to the cloud")
                 .register(meterRegistry);
@@ -171,16 +176,37 @@ public class FileCatalogServiceImpl implements FileCatalogService{
                 .description("Current number of files cataloged in the database")
                 .register(meterRegistry);
         this.gcpDownloadsCounter = Counter.builder("cloud_archiver_gcp_downloads_total")
-            .description("Total number of GCP download operations")
-            .register(meterRegistry);
+                .description("Total number of GCP download operations")
+                .register(meterRegistry);
         this.gcpUploadBytesSummary = DistributionSummary.builder("cloud_archiver_gcp_upload_bytes")
-            .description("Total bytes uploaded to GCP")
-            .baseUnit("bytes")
-            .register(meterRegistry);
+                .description("Total bytes uploaded to GCP")
+                .baseUnit("bytes")
+                .register(meterRegistry);
         this.gcpDownloadBytesSummary = DistributionSummary.builder("cloud_archiver_gcp_download_bytes")
-            .description("Total bytes downloaded from GCP")
-            .baseUnit("bytes")
-            .register(meterRegistry);
+                .description("Total bytes downloaded from GCP")
+                .baseUnit("bytes")
+                .register(meterRegistry);
+    }
+
+    private void resetMetrics() {
+        Stream.of(
+                filesUploadedCounter,
+                filesDeletedCounter,
+                uploadTimer,
+                deleteTimer,
+                scanDurationTimer,
+                filesInCatalogGauge,
+                gcpDownloadsCounter,
+                gcpUploadBytesSummary,
+                gcpDownloadBytesSummary
+        ).forEach(this::removeMeter);
+        registerMetrics();
+    }
+
+    private void removeMeter(Meter meter) {
+        if (meter != null) {
+            meterRegistry.remove(meter);
+        }
     }
 
     @Override
@@ -238,6 +264,7 @@ public class FileCatalogServiceImpl implements FileCatalogService{
         }
 
         try {
+            resetMetrics();
             log.info("Starting all location syncs.");
             List<ScanLocationConfig> scanLocations = applicationProperties.getScanFolders();
             if (scanLocations == null || scanLocations.isEmpty()) {
