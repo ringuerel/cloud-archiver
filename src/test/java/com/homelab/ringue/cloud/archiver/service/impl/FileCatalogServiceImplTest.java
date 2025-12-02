@@ -3,10 +3,13 @@ package com.homelab.ringue.cloud.archiver.service.impl;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mockStatic;
 
 import java.io.IOException;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -44,9 +47,14 @@ import com.homelab.ringue.cloud.archiver.service.FileCatalogItemMapper;
 import com.homelab.ringue.cloud.archiver.service.NotificationService;
 import com.homelab.ringue.cloud.archiver.service.SyncLockManager;
 
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.DistributionSummary;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.MeterRegistry.Config;
 import io.micrometer.core.instrument.Timer;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 public class FileCatalogServiceImplTest {
 
@@ -264,6 +272,74 @@ public class FileCatalogServiceImplTest {
         );
     }
 
+
+    @Test
+    void resetMetricsRemovesAndReRegistersMeters() throws Exception {
+        SimpleMeterRegistry simpleRegistry = Mockito.spy(new SimpleMeterRegistry());
+        FileCatalogServiceImpl metricsService = new FileCatalogServiceImpl(
+            fileCatalogItemRepository,
+            fileCatalogItemMapper,
+            cloudProviderFactory,
+            applicationProperties,
+            summaryRepository,
+            notificationService,
+            syncLockManager,
+            simpleRegistry
+        );
+
+        MetricsSnapshot beforeReset = captureMetrics(metricsService);
+
+        Method resetMetricsMethod = FileCatalogServiceImpl.class.getDeclaredMethod("resetMetrics");
+        resetMetricsMethod.setAccessible(true);
+        resetMetricsMethod.invoke(metricsService);
+
+        MetricsSnapshot afterReset = captureMetrics(metricsService);
+
+        assertNotSame(beforeReset.filesUploadedCounter(), afterReset.filesUploadedCounter());
+        assertNotSame(beforeReset.filesDeletedCounter(), afterReset.filesDeletedCounter());
+        assertNotSame(beforeReset.uploadTimer(), afterReset.uploadTimer());
+        assertNotSame(beforeReset.deleteTimer(), afterReset.deleteTimer());
+        assertNotSame(beforeReset.scanDurationTimer(), afterReset.scanDurationTimer());
+        assertNotSame(beforeReset.filesInCatalogGauge(), afterReset.filesInCatalogGauge());
+        assertNotSame(beforeReset.gcpDownloadsCounter(), afterReset.gcpDownloadsCounter());
+        assertNotSame(beforeReset.gcpUploadBytesSummary(), afterReset.gcpUploadBytesSummary());
+        assertNotSame(beforeReset.gcpDownloadBytesSummary(), afterReset.gcpDownloadBytesSummary());
+
+        Mockito.verify(simpleRegistry, Mockito.atLeast(9)).remove(Mockito.any(Meter.class));
+    }
+
+    private MetricsSnapshot captureMetrics(FileCatalogServiceImpl target) throws ReflectiveOperationException {
+        return new MetricsSnapshot(
+            getMetricField(target, "filesUploadedCounter"),
+            getMetricField(target, "filesDeletedCounter"),
+            getMetricField(target, "uploadTimer"),
+            getMetricField(target, "deleteTimer"),
+            getMetricField(target, "scanDurationTimer"),
+            getMetricField(target, "filesInCatalogGauge"),
+            getMetricField(target, "gcpDownloadsCounter"),
+            getMetricField(target, "gcpUploadBytesSummary"),
+            getMetricField(target, "gcpDownloadBytesSummary")
+        );
+    }
+
+    @SuppressWarnings("unchecked")
+    private <T> T getMetricField(FileCatalogServiceImpl target, String fieldName) throws ReflectiveOperationException {
+        Field field = FileCatalogServiceImpl.class.getDeclaredField(fieldName);
+        field.setAccessible(true);
+        return (T) field.get(target);
+    }
+
+    private record MetricsSnapshot(
+        Counter filesUploadedCounter,
+        Counter filesDeletedCounter,
+        Timer uploadTimer,
+        Timer deleteTimer,
+        Timer scanDurationTimer,
+        Gauge filesInCatalogGauge,
+        Counter gcpDownloadsCounter,
+        DistributionSummary gcpUploadBytesSummary,
+        DistributionSummary gcpDownloadBytesSummary
+    ) {}
 
     private Stream<Path> prepareFilesStream(List<String> filesPaths) {
         return filesPaths.stream().map(Path::of);
