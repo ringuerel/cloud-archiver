@@ -192,14 +192,14 @@ public class FileCatalogServiceImplTest {
         .thenReturn(otherFile)
         .thenReturn(someMovFile);
         //This should have it's own test
-        Mockito.doNothing().when(serviceImplSpy).performCloudBackup(Mockito.any());
+        Mockito.doNothing().when(serviceImplSpy).performCloudBackup(Mockito.any(ScanLocationConfig.class), Mockito.any());
         Mockito.doReturn(someFile).when(serviceImplSpy).getCrC32CPopulatedItem(someFile);
         Mockito.doReturn(otherFile).when(serviceImplSpy).getCrC32CPopulatedItem(otherFile);
         Mockito.doReturn(someMovFile).when(serviceImplSpy).getCrC32CPopulatedItem(someMovFile);
         Map<String, FileCatalogItem> backedUpItems = new HashMap<>();
         backedUpItems.put(someMovFile.absolutePath(), someMovFile);
         serviceImplSpy.processFileStreamForBackup(scanLocationConfigMock, backedUpItems, filesStream);
-        Mockito.verify(serviceImplSpy,Mockito.times(2)).performCloudBackup(Mockito.any());
+        Mockito.verify(serviceImplSpy,Mockito.times(2)).performCloudBackup(Mockito.any(ScanLocationConfig.class), Mockito.any());
     }
 
     @Test
@@ -217,13 +217,13 @@ public class FileCatalogServiceImplTest {
         .thenReturn(someFile)
         .thenReturn(updatedFile);
         //This should have it's own test
-        Mockito.doNothing().when(serviceImplSpy).performCloudBackup(Mockito.any());
+        Mockito.doNothing().when(serviceImplSpy).performCloudBackup(Mockito.any(ScanLocationConfig.class), Mockito.any());
         Map<String, FileCatalogItem> backedUpItems = new HashMap<>();
         backedUpItems.put(updatedFile.absolutePath(), updatedFile);
         backedUpItems.put(someFile.absolutePath(), someFile); 
         Mockito.doReturn(null).when(serviceImplSpy).getFileToProcessIfAny(backedUpItems, updatedFile);
         serviceImplSpy.processFileStreamForBackup(scanLocationConfigMock, backedUpItems, filesStream);
-        Mockito.verify(serviceImplSpy).performCloudBackup(Mockito.any());
+        Mockito.verify(serviceImplSpy).performCloudBackup(Mockito.any(ScanLocationConfig.class), Mockito.any());
     }
 
     @ParameterizedTest
@@ -318,7 +318,8 @@ public class FileCatalogServiceImplTest {
             getMetricField(target, "filesInCatalogGauge"),
             getMetricField(target, "gcpDownloadsCounter"),
             getMetricField(target, "gcpUploadBytesSummary"),
-            getMetricField(target, "gcpDownloadBytesSummary")
+            getMetricField(target, "gcpDownloadBytesSummary"),
+            getMetricField(target, "gcpDeleteBytesSummary")
         );
     }
 
@@ -338,7 +339,8 @@ public class FileCatalogServiceImplTest {
         Gauge filesInCatalogGauge,
         Counter gcpDownloadsCounter,
         DistributionSummary gcpUploadBytesSummary,
-        DistributionSummary gcpDownloadBytesSummary
+        DistributionSummary gcpDownloadBytesSummary,
+        DistributionSummary gcpDeleteBytesSummary
     ) {}
 
     private Stream<Path> prepareFilesStream(List<String> filesPaths) {

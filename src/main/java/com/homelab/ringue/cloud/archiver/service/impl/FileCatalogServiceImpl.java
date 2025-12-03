@@ -140,6 +140,20 @@ public class FileCatalogServiceImpl implements FileCatalogService{
     private Counter gcpDownloadsCounter;
     private DistributionSummary gcpUploadBytesSummary;
     private DistributionSummary gcpDownloadBytesSummary;
+    private DistributionSummary gcpDeleteBytesSummary;
+
+    private static final String SCAN_LOCATION_TAG = "scan_location";
+
+    private String sanitizeScanLocation(String raw) {
+        if (raw == null) {
+            return "unknown";
+        }
+        String s = raw.replace("\\\\", "/").trim();
+        while (s.endsWith("/")) {
+            s = s.substring(0, s.length() - 1);
+        }
+        return s.isEmpty() ? "unknown" : s;
+    }
 
 
     @Autowired
@@ -186,9 +200,14 @@ public class FileCatalogServiceImpl implements FileCatalogService{
                 .description("Total bytes downloaded from GCP")
                 .baseUnit("bytes")
                 .register(meterRegistry);
+        this.gcpDeleteBytesSummary = DistributionSummary.builder("cloud_archiver_gcp_delete_bytes")
+                .description("Total bytes deleted from GCP")
+                .baseUnit("bytes")
+                .register(meterRegistry);
     }
 
     private void resetMetrics() {
+        // Remove global meters we explicitly manage
         Stream.of(
                 filesUploadedCounter,
                 filesDeletedCounter,
@@ -198,8 +217,15 @@ public class FileCatalogServiceImpl implements FileCatalogService{
                 filesInCatalogGauge,
                 gcpDownloadsCounter,
                 gcpUploadBytesSummary,
-                gcpDownloadBytesSummary
+                gcpDownloadBytesSummary,
+                gcpDeleteBytesSummary
         ).forEach(this::removeMeter);
+
+        // Also remove any per-location meters to avoid unbounded cardinality between runs
+        meterRegistry.getMeters().stream()
+                .filter(m -> m.getId().getTags().stream().anyMatch(t -> t.getKey().equals(SCAN_LOCATION_TAG)))
+                .forEach(this::removeMeter);
+
         registerMetrics();
     }
 
@@ -335,7 +361,7 @@ public class FileCatalogServiceImpl implements FileCatalogService{
             catalogEntriesByPages = fileCatalogItemRepository.findByParentFolderStartsWith(rootFolder,catalogPages);
         }
         log.trace("Total results: {} Processing batch {}/{}",catalogEntriesByPages.getTotalElements(),catalogEntriesByPages.getNumber(),catalogEntriesByPages.getTotalPages());
-        processCatalogEntryForCleanup(catalogEntriesByPages.getContent().parallelStream());
+        processCatalogEntryForCleanup(locationConfig, catalogEntriesByPages.getContent().parallelStream());
         if(catalogEntriesByPages.hasNext()){
             performBucketCleanup(catalogEntriesByPages.nextPageable(),locationConfig);
         }
@@ -346,10 +372,10 @@ public class FileCatalogServiceImpl implements FileCatalogService{
         return locationPath.replace(charSquence, "\\");
     }
 
-    private void processCatalogEntryForCleanup(Stream<FileCatalogItem> parallelStream) {
+    private void processCatalogEntryForCleanup(ScanLocationConfig locationConfig, Stream<FileCatalogItem> parallelStream) {
         parallelStream
         .filter(this::isFileNotExistOnDisk)
-        .forEach(this::handleFileCatalogItemDelete);
+        .forEach(item -> handleFileCatalogItemDelete(locationConfig, item));
     }
 
     private void performFolderBackup(ScanLocationConfig locationConfig) throws CloudBackupException {
@@ -380,7 +406,7 @@ public class FileCatalogServiceImpl implements FileCatalogService{
         .filter(importingFileCatalogItem -> !importingFileCatalogItem.isDirectory())
         .map(fileOnDisk-> getFileToProcessIfAny(collectionIdsInMemoryCache, fileOnDisk))
         .filter(Objects::nonNull)//Filters out null again due to crc32c failures will return null
-        .forEach(this::performCloudBackup);
+        .forEach(fileOnDisk -> performCloudBackup(locationConfig, fileOnDisk));
         log.info("Updating metadata only for {} items on {}",collectionIdsInMemoryCache.size(),locationConfig.getScanFolder());
         collectionIdsInMemoryCache.values().parallelStream()
         .forEach(fileCatalogItemRepository::save);
@@ -438,7 +464,7 @@ public class FileCatalogServiceImpl implements FileCatalogService{
         return true;
     }
 
-    void performCloudBackup(FileCatalogItem fileCatalogItem){
+    void performCloudBackup(ScanLocationConfig locationConfig, FileCatalogItem fileCatalogItem){
         try {
             log.debug("[GCP] Performing cloud backup for: {} with a size of: {}",fileCatalogItem.absolutePath(), fileCatalogItem.fileSize());
             fileCatalogItem = fileCatalogItemMapper.mapFromFileCatalogItemAddArchiveDate(fileCatalogItem);
@@ -448,6 +474,9 @@ public class FileCatalogServiceImpl implements FileCatalogService{
             long durationMs = (System.nanoTime() - startTime) / 1_000_000;
 
             gcpUploadBytesSummary.record(fileCatalogItem.fileSize());
+            // Per-location size metric
+            String uploadLabel = sanitizeScanLocation(locationConfig.getScanFolder());
+            meterRegistry.summary("cloud_archiver_gcp_upload_bytes", SCAN_LOCATION_TAG, uploadLabel).record(fileCatalogItem.fileSize());
 
             log.info("[GCP] Uploaded {} ({} bytes) in {} ms", fileCatalogItem.absolutePath(), fileCatalogItem.fileSize(), durationMs);
             fileCatalogItemRepository.save(fileCatalogItem);
@@ -455,6 +484,11 @@ public class FileCatalogServiceImpl implements FileCatalogService{
             catalogSize.addAndGet(fileCatalogItem.fileSize());
             filesUploadedCounter.increment();
             uploadTimer.record(Duration.between(uploadStart, Instant.now()));
+
+            // Per-location metrics
+            String label = sanitizeScanLocation(locationConfig.getScanFolder());
+            meterRegistry.counter("cloud_archiver_files_uploaded_total", SCAN_LOCATION_TAG, label).increment();
+            meterRegistry.timer("cloud_archiver_upload_duration_seconds", SCAN_LOCATION_TAG, label).record(Duration.between(uploadStart, Instant.now()));
         } catch (Exception e) {
             log.error("[GCP] Failed to upload {} to the cloud provider",fileCatalogItem.absolutePath(), e);
             ScanLocationConfig fileLocationConfig = new ScanLocationConfig();
@@ -489,7 +523,7 @@ public class FileCatalogServiceImpl implements FileCatalogService{
         return Files.notExists(Paths.get(filecatalogitem.absolutePath()));
     }
 
-    private void handleFileCatalogItemDelete(FileCatalogItem filecatalogitem) {
+    private void handleFileCatalogItemDelete(ScanLocationConfig locationConfig, FileCatalogItem filecatalogitem) {
         try{
             Instant deleteStart = Instant.now();
             long startTime = System.nanoTime();
@@ -500,8 +534,16 @@ public class FileCatalogServiceImpl implements FileCatalogService{
             fileCatalogItemRepository.delete(filecatalogitem);
             catalogCount.incrementAndGet();
             catalogSize.addAndGet(filecatalogitem.fileSize());
+            // Global delete size summary
+            gcpDeleteBytesSummary.record(filecatalogitem.fileSize());
             filesDeletedCounter.increment();
             deleteTimer.record(Duration.between(deleteStart, Instant.now()));
+
+            // Per-location metrics
+            String label = sanitizeScanLocation(locationConfig.getScanFolder());
+            meterRegistry.counter("cloud_archiver_files_deleted_total", SCAN_LOCATION_TAG, label).increment();
+            meterRegistry.timer("cloud_archiver_delete_duration_seconds", SCAN_LOCATION_TAG, label).record(Duration.between(deleteStart, Instant.now()));
+            meterRegistry.summary("cloud_archiver_gcp_delete_bytes", SCAN_LOCATION_TAG, label).record(filecatalogitem.fileSize());
         }catch(Exception e){
             log.error("[GCP] Unable to delete {} from the CloudProvider {}, item will be preserved in the catalog database for next iteration attempt", filecatalogitem.absolutePath(),applicationProperties.getCloudProviderConfig().getType(),e);
         }
