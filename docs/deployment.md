@@ -119,6 +119,12 @@ flowchart TD
     I --> J["Mount key into container\nset CREDENTIALSFILEPATH"]
 ```
 
+Official Google tutorials for each step:
+- [Create a Google Cloud project](https://developers.google.com/workspace/guides/create-project)
+- [Create a bucket](https://cloud.google.com/storage/docs/creating-buckets)
+- [Create a service account](https://cloud.google.com/iam/docs/service-accounts-create#creating)
+- [Create a service account key](https://cloud.google.com/iam/docs/keys-create-delete#creating)
+
 **Recommended bucket settings for a personal media archive:**
 
 | Setting | Recommended value | Reason |
