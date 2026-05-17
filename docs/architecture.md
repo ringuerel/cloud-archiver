@@ -124,3 +124,16 @@ com.homelab.ringue.cloud.archiver
         ├── Embed.java                  Discord embed object
         └── Field.java                 Discord embed field
 ```
+
+---
+
+## Design Patterns
+
+| Pattern | Where used | Purpose |
+|---------|-----------|---------|
+| **Strategy** | `CloudProvider` / `GCPStorageProvider` / `NoProvider` | Swap cloud backends without changing business logic |
+| **Factory** | `CloudProviderFactory` | Resolve the correct `CloudProvider` by `CloudProviders` enum at runtime |
+| **Repository** | `FileCatalogItemRepository`, `SyncSummaryRepository` | Decouple data access from service logic |
+| **Observer / async** | `WebhookNotificationService` (`@Async`) | Notifications fire and forget — don't block the sync thread |
+| **Template Method** | `FileCatalogItemMapper` | Consistent object construction with per-call field overrides |
+| **Prototype scope** | `FileCatalogServiceImpl`, `FileCatalogController` | Fresh instance per injection point; avoids shared mutable state across concurrent requests |

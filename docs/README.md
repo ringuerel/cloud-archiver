@@ -2,6 +2,8 @@
 
 Cloud Archiver is a self-hosted Spring Boot service that continuously synchronizes local folders to a cloud storage bucket. It tracks every file in a MongoDB catalog, uses CRC32C checksums to detect changes, and respects configurable retention windows to avoid early-deletion fees on cold storage classes (Nearline, Coldline, Archive).
 
+> **Origin story:** This project was born out of the need to convince a skeptical spouse that family photos and videos were safe, even stored on personal disks. By using a cloud provider for backup, storage costs dropped from ~$10/month to ~$0.50/month for the same files.
+
 ---
 
 ## Documentation Index
@@ -24,10 +26,11 @@ Cloud Archiver is a self-hosted Spring Boot service that continuously synchroniz
 ```mermaid
 flowchart LR
     A["1. Create GCS bucket\n+ lifecycle rule"] --> B["2. Create service account\n+ download JSON key"]
-    B --> C["3. Configure docker-compose.yml\n(env vars)"]
-    C --> D["4. Mount volumes\n(scan folders + GCP key)"]
-    D --> E["5. docker compose up -d"]
-    E --> F["6. Check health\nGET /cloud-archiver/actuator/health"]
+    B --> C["3. Set up MongoDB\n(Atlas free tier works)"]
+    C --> D["4. Configure docker-compose.yml\n(env vars)"]
+    D --> E["5. Mount volumes\n(scan folders + GCP key)"]
+    E --> F["6. docker compose up -d"]
+    F --> G["7. Check health\nGET /cloud-archiver/actuator/health"]
 ```
 
 ### Minimum required environment variables
@@ -43,6 +46,8 @@ APPLICATION_SCANFOLDERS_0_SCANFOLDER=/data/my-folder
 SPRING_DATA_MONGODB_DATABASE=cloud_archiver
 SPRING_DATA_MONGODB_URI=mongodb+srv://user:pass@host/
 ```
+
+> **First run tip:** Set `APPLICATION_CLOUDPROVIDERCONFIG_TYPE=NO_PROVIDER` on the first run to validate your folder configuration and see what *would* be uploaded — without touching the cloud or incurring any costs. Switch to `GCP` once you're satisfied.
 
 ---
 
@@ -67,3 +72,14 @@ SPRING_DATA_MONGODB_URI=mongodb+srv://user:pass@host/
 
 Current version: `0.9.9.009-SNAPSHOT`  
 Docker image: `ringuerel/cloud-archiver`
+
+---
+
+## Planned Features
+
+- AWS and Azure cloud provider support
+- Data deduplication
+- Encryption at rest
+- Web UI for configuration, monitoring, and file retrieval
+- Resumable uploads for large files
+- Exponential backoff / retry on transient cloud API failures

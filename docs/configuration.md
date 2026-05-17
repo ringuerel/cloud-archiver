@@ -133,3 +133,15 @@ management:
 |----------|-----|
 | Health | `GET /cloud-archiver/actuator/health` |
 | Prometheus metrics | `GET /cloud-archiver/actuator/prometheus` |
+
+---
+
+## Known Constraints
+
+| Constraint | Detail |
+|-----------|--------|
+| **File size** | Very large files are read in full into the CRC32C hasher using a configurable buffer (`crc32cBufferSize`). No chunked / resumable upload is implemented yet. |
+| **API rate limits** | No automatic retry or exponential backoff on GCP API failures. A failed upload is logged and skipped; it will be retried on the next sync run. |
+| **Network latency** | Upload throughput is bounded by the host's outbound bandwidth. The GCP SDK handles connection pooling internally. |
+| **Single cloud provider** | Only GCP is implemented. AWS and Azure are planned. |
+| **No encryption** | Files are uploaded as-is. Encryption at rest is delegated to the GCS bucket settings (Google-managed or customer-managed keys). |

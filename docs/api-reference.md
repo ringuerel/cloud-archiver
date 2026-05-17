@@ -74,6 +74,18 @@ Download a file or folder from the cloud provider to the configured `downloadRoo
 **Response** `200 OK` — `"Download started for: <path>"`  
 **Response** `500 Internal Server Error` — `"Download failed for: <path>"`
 
+**Example — restore a single file:**
+```
+POST /cloud-archiver/file-catalog/download?path=/home/user/photos/vacation.jpg
+```
+
+**Example — restore a folder prefix:**
+```
+POST /cloud-archiver/file-catalog/download?path=/home/user/photos/2024/
+```
+
+Files are placed under `downloadRoot`, preserving their relative path. Missing intermediate directories are created automatically.
+
 > **Note:** `downloadRoot` must be configured in `application.yml` or via the `APPLICATION_DOWNLOADROOT` environment variable.
 
 ---
@@ -84,6 +96,8 @@ Trigger a full sync of all configured scan locations immediately (same logic as 
 
 **Response** `200 OK` — `"Sync process initiated successfully."`  
 **Response** `409 Conflict` — `"Sync process skipped: another sync is already running."`
+
+> **Stale lock:** If a previous sync crashed without releasing the lock, it will be force-released after `application.syncLockTimeoutSeconds` (default: 3600 s). The next call after that timeout will proceed normally.
 
 ---
 

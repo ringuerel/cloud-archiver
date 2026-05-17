@@ -139,6 +139,81 @@ timeline
 
 ---
 
+## Detailed Sequence Diagram
+
+This captures the full participant interaction across both backup and cleanup phases, matching the original PlantUML workflow diagram.
+
+```mermaid
+sequenceDiagram
+    participant Scheduler as TimedTask (@Scheduled)
+    participant Service as FileCatalogServiceImpl
+    participant Lock as SyncLockManager
+    participant FS as File System
+    participant Cloud as CloudProvider
+    participant DB as FileCatalogItemRepository
+    participant SummaryDB as SyncSummaryRepository
+    participant Notifier as NotificationService (async)
+
+    Scheduler->>Lock: acquireLock()
+    Lock-->>Scheduler: true
+
+    loop For each ScanLocationConfig
+        Scheduler->>Service: performLocationSync(config)
+        Service->>Notifier: notifyInfoMessage("Started backup")
+
+        Note over Service,DB: ── Backup Phase ──
+        Service->>DB: findByParentFolderStartsWith() [paginated]
+        DB-->>Service: existing catalog items → ConcurrentHashMap
+
+        Service->>FS: Files.walk(scanFolder).parallel()
+        FS-->>Service: Stream of Paths
+
+        loop For each file in stream
+            Service->>Service: applyFilteringRules() — hidden / patterns
+            Service->>Service: getFileToProcessIfAny()
+            alt mtime unchanged
+                Service->>Service: skip (no CRC needed)
+            else mtime changed or new file
+                Service->>FS: getCrC32C(file)
+                FS-->>Service: CRC32C checksum
+                alt CRC unchanged
+                    Service->>DB: update lastModified only
+                else CRC changed or new
+                    Service->>Cloud: upload(fileCatalogItem)
+                    Cloud-->>Service: success
+                    Service->>DB: save(fileCatalogItem with archiveDate)
+                end
+            end
+        end
+        Service->>DB: save remaining cache entries (metadata updates)
+
+        opt cleanRemovedFromCloud = true
+            Note over Service,DB: ── Cleanup Phase ──
+            Service->>Notifier: notifyInfoMessage("Started cleanup")
+            loop For each page of catalog entries
+                Service->>DB: findByParentFolderStartsWith() [paginated]
+                DB-->>Service: catalog entries
+                loop For each entry (parallel)
+                    Service->>FS: Files.notExists(absolutePath)?
+                    alt File missing from disk AND within deletion window
+                        Service->>Cloud: delete(fileCatalogItem)
+                        Cloud-->>Service: success
+                        Service->>DB: delete(fileCatalogItem)
+                    end
+                end
+            end
+        end
+
+        Service->>SummaryDB: save(SyncSummaryItem) [accumulates daily totals]
+        Service->>Notifier: notifySummary(summary, config)
+        Notifier-->>Service: (async, non-blocking)
+    end
+
+    Scheduler->>Lock: releaseLock()
+```
+
+---
+
 ## Concurrency Control
 
 ```mermaid
