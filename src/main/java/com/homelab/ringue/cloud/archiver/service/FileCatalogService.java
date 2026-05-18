@@ -5,6 +5,7 @@ import java.util.Optional;
 
 import com.homelab.ringue.cloud.archiver.config.ApplicationProperties.ScanLocationConfig;
 import com.homelab.ringue.cloud.archiver.domain.FileCatalogItem;
+import com.homelab.ringue.cloud.archiver.domain.PendingDeletionItem;
 import com.homelab.ringue.cloud.archiver.exception.CloudBackupException;
 
 public interface FileCatalogService {
@@ -12,6 +13,12 @@ public interface FileCatalogService {
     List<FileCatalogItem> findByFileNameContains(String fileName);
     List<FileCatalogItem> findByFileNameSimilar(String fileName);
     List<FileCatalogItem> findByArchiveDateBetweenAndAbsolutePathStartsWith(String startDate, String endDate, Optional<String> path);
+
+    /**
+     * Returns catalog items that no longer exist on disk, enriched with days-until-deletion
+     * computed from the owning ScanLocationConfig's delete policy.
+     */
+    List<PendingDeletionItem> findPendingDeletion(Optional<String> fileNameContains, Optional<String> fileNameExact, Optional<String> path);
 
     void performLocationSync(ScanLocationConfig scanlocationconfig) throws CloudBackupException;
 

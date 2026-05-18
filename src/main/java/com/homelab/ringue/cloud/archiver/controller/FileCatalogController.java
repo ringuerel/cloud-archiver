@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.homelab.ringue.cloud.archiver.domain.FileCatalogItem;
+import com.homelab.ringue.cloud.archiver.domain.PendingDeletionItem;
 import com.homelab.ringue.cloud.archiver.service.FileCatalogService;
 
 import io.swagger.v3.oas.annotations.Operation;
@@ -87,6 +88,20 @@ public class FileCatalogController {
         } else {
             return ResponseEntity.status(500).body("Download failed for: " + cloudPath);
         }
+    }
+
+    @Operation(summary = "Get pending deletion items",
+               description = "Returns catalog items that no longer exist on disk, enriched with the number of days until they are eligible for deletion based on the owning scan location's delete policy.",
+               responses = {
+                   @ApiResponse(responseCode = "200", description = "Successfully retrieved list of pending deletion items"),
+                   @ApiResponse(responseCode = "500", description = "Internal server error")
+               })
+    @GetMapping("/pending-deletion")
+    public List<PendingDeletionItem> getPendingDeletion(
+            @Parameter(description = "Case-insensitive substring match against fileName") @RequestParam(value = "fileNameContains", required = false) Optional<String> fileNameContains,
+            @Parameter(description = "Exact match against fileName") @RequestParam(value = "fileNameExact", required = false) Optional<String> fileNameExact,
+            @Parameter(description = "Restrict to entries whose absolutePath starts with this prefix") @RequestParam(value = "path", required = false) Optional<String> path) {
+        return fileCatalogService.findPendingDeletion(fileNameContains, fileNameExact, path);
     }
 
     @Operation(summary = "Trigger a manual sync process",
