@@ -244,47 +244,58 @@ public class FileCatalogServiceImpl implements FileCatalogService{
         List<ScanLocationConfig> scanFolders = Optional.ofNullable(applicationProperties.getScanFolders())
                 .orElse(List.of());
 
-        // Resolve owning location for the path filter (used for fetch size)
         int fetchSize = path.map(p -> resolveOwningLocation(p, scanFolders))
                 .map(ScanLocationConfig::getCollectionFetchSize)
                 .orElse(500);
 
-        // Collect all pages
+        String fixedPath = path.map(this::fixLocationPath).orElse(null);
+
         List<FileCatalogItem> allItems = new ArrayList<>();
-        if (path.isPresent()) {
-            String fixedPath = fixLocationPath(path.get());
-            Pageable pageRequest = PageRequest.ofSize(fetchSize);
-            Page<FileCatalogItem> page;
-            do {
-                page = fileCatalogItemRepository.findByParentFolderStartsWith(fixedPath, pageRequest);
-                allItems.addAll(page.getContent());
-                pageRequest = page.nextPageable();
-            } while (page.hasNext());
-        } else {
-            Pageable pageRequest = PageRequest.ofSize(fetchSize);
-            Page<FileCatalogItem> page;
-            do {
-                page = fileCatalogItemRepository.findAll(pageRequest);
-                allItems.addAll(page.getContent());
-                pageRequest = page.nextPageable();
-            } while (page.hasNext());
-        }
+        Pageable pageRequest = PageRequest.ofSize(fetchSize);
+        Page<FileCatalogItem> page;
 
-        // Apply in-memory name filters
-        Stream<FileCatalogItem> stream = allItems.stream();
-        if (fileNameContains.isPresent()) {
-            String needle = fileNameContains.get().toLowerCase();
-            stream = stream.filter(item -> item.fileName() != null && item.fileName().toLowerCase().contains(needle));
-        } else if (fileNameExact.isPresent()) {
-            String exact = fileNameExact.get();
-            stream = stream.filter(item -> exact.equals(item.fileName()));
-        }
+        do {
+            page = queryForPendingDeletion(fileNameContains, fileNameExact, fixedPath, pageRequest);
+            allItems.addAll(page.getContent());
+            pageRequest = page.nextPageable();
+        } while (page.hasNext());
 
-        // Keep only items missing from disk, then map to PendingDeletionItem
-        return stream
+        return allItems.stream()
                 .filter(item -> Files.notExists(Paths.get(item.absolutePath())))
                 .map(item -> toPendingDeletionItem(item, scanFolders))
                 .toList();
+    }
+
+    /**
+     * Selects the appropriate repository query based on which filters are present,
+     * pushing all name and path filtering down to MongoDB.
+     */
+    private Page<FileCatalogItem> queryForPendingDeletion(
+            Optional<String> fileNameContains,
+            Optional<String> fileNameExact,
+            String fixedPath,
+            Pageable pageRequest) {
+
+        if (fileNameContains.isPresent() && fixedPath != null) {
+            return fileCatalogItemRepository.findByFileNameContainsIgnoreCaseAndParentFolderStartsWith(
+                    fileNameContains.get(), fixedPath, pageRequest);
+        }
+        if (fileNameContains.isPresent()) {
+            return fileCatalogItemRepository.findByFileNameContainsIgnoreCase(
+                    fileNameContains.get(), pageRequest);
+        }
+        if (fileNameExact.isPresent() && fixedPath != null) {
+            return fileCatalogItemRepository.findByFileNameAndParentFolderStartsWith(
+                    fileNameExact.get(), fixedPath, pageRequest);
+        }
+        if (fileNameExact.isPresent()) {
+            return fileCatalogItemRepository.findByFileName(
+                    fileNameExact.get(), pageRequest);
+        }
+        if (fixedPath != null) {
+            return fileCatalogItemRepository.findByParentFolderStartsWith(fixedPath, pageRequest);
+        }
+        return fileCatalogItemRepository.findAll(pageRequest);
     }
 
     private PendingDeletionItem toPendingDeletionItem(FileCatalogItem item, List<ScanLocationConfig> scanFolders) {
@@ -298,11 +309,15 @@ public class FileCatalogServiceImpl implements FileCatalogService{
 
     /**
      * Finds the ScanLocationConfig whose scanFolder is the longest prefix of the given path.
+     * Both sides are normalized to forward slashes before comparison to handle
+     * Windows paths regardless of how backslashes were bound from config or stored in MongoDB.
      * Returns null if no location matches.
      */
     ScanLocationConfig resolveOwningLocation(String absolutePath, List<ScanLocationConfig> scanFolders) {
+        String normalizedAbsolutePath = absolutePath.replace('\\', '/');
         return scanFolders.stream()
-                .filter(loc -> loc.getScanFolder() != null && absolutePath.startsWith(loc.getScanFolder()))
+                .filter(loc -> loc.getScanFolder() != null)
+                .filter(loc -> normalizedAbsolutePath.startsWith(loc.getScanFolder().replace('\\', '/')))
                 .max(Comparator.comparingInt(loc -> loc.getScanFolder().length()))
                 .orElse(null);
     }
