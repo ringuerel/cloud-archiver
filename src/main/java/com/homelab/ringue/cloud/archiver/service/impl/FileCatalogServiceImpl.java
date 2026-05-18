@@ -9,10 +9,14 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
@@ -22,8 +26,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
-import java.time.LocalDate;
-import java.time.ZoneId;
 
 import org.apache.logging.log4j.message.SimpleMessage;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -42,6 +44,7 @@ import com.homelab.ringue.cloud.archiver.cloudprovider.CloudProviderFactory;
 import com.homelab.ringue.cloud.archiver.config.ApplicationProperties;
 import com.homelab.ringue.cloud.archiver.config.ApplicationProperties.ScanLocationConfig;
 import com.homelab.ringue.cloud.archiver.domain.FileCatalogItem;
+import com.homelab.ringue.cloud.archiver.domain.PendingDeletionItem;
 import com.homelab.ringue.cloud.archiver.domain.SyncSummaryItem;
 import com.homelab.ringue.cloud.archiver.exception.CloudBackupException;
 import com.homelab.ringue.cloud.archiver.repository.FileCatalogItemRepository;
@@ -234,6 +237,109 @@ public class FileCatalogServiceImpl implements FileCatalogService{
             log.error("Failed to parse date for archived items search", e);
             throw new IllegalArgumentException("Invalid date format. Please use yyyy-MM-dd.");
         }
+    }
+
+    @Override
+    public List<PendingDeletionItem> findPendingDeletion(Optional<String> fileNameContains, Optional<String> fileNameExact, Optional<String> path) {
+        List<ScanLocationConfig> scanFolders = Optional.ofNullable(applicationProperties.getScanFolders())
+                .orElse(List.of());
+
+        int fetchSize = path.map(p -> resolveOwningLocation(p, scanFolders))
+                .map(ScanLocationConfig::getCollectionFetchSize)
+                .orElse(500);
+
+        String fixedPath = path.map(this::fixLocationPath).orElse(null);
+
+        List<FileCatalogItem> allItems = new ArrayList<>();
+        Pageable pageRequest = PageRequest.ofSize(fetchSize);
+        Page<FileCatalogItem> page;
+
+        do {
+            page = queryForPendingDeletion(fileNameContains, fileNameExact, fixedPath, pageRequest);
+            allItems.addAll(page.getContent());
+            pageRequest = page.nextPageable();
+        } while (page.hasNext());
+
+        return allItems.stream()
+                .filter(item -> Files.notExists(Paths.get(item.absolutePath())))
+                .map(item -> toPendingDeletionItem(item, scanFolders))
+                .toList();
+    }
+
+    /**
+     * Selects the appropriate repository query based on which filters are present,
+     * pushing all name and path filtering down to MongoDB.
+     */
+    private Page<FileCatalogItem> queryForPendingDeletion(
+            Optional<String> fileNameContains,
+            Optional<String> fileNameExact,
+            String fixedPath,
+            Pageable pageRequest) {
+
+        if (fileNameContains.isPresent() && fixedPath != null) {
+            return fileCatalogItemRepository.findByFileNameContainsIgnoreCaseAndParentFolderStartsWith(
+                    fileNameContains.get(), fixedPath, pageRequest);
+        }
+        if (fileNameContains.isPresent()) {
+            return fileCatalogItemRepository.findByFileNameContainsIgnoreCase(
+                    fileNameContains.get(), pageRequest);
+        }
+        if (fileNameExact.isPresent() && fixedPath != null) {
+            return fileCatalogItemRepository.findByFileNameAndParentFolderStartsWith(
+                    fileNameExact.get(), fixedPath, pageRequest);
+        }
+        if (fileNameExact.isPresent()) {
+            return fileCatalogItemRepository.findByFileName(
+                    fileNameExact.get(), pageRequest);
+        }
+        if (fixedPath != null) {
+            return fileCatalogItemRepository.findByParentFolderStartsWith(fixedPath, pageRequest);
+        }
+        return fileCatalogItemRepository.findAll(pageRequest);
+    }
+
+    private PendingDeletionItem toPendingDeletionItem(FileCatalogItem item, List<ScanLocationConfig> scanFolders) {
+        ScanLocationConfig location = resolveOwningLocation(item.absolutePath(), scanFolders);
+        if (location == null) {
+            return new PendingDeletionItem(item, 0L, "unknown");
+        }
+        long days = computeDaysUntilDeletion(item, location);
+        return new PendingDeletionItem(item, days, location.getScanFolder());
+    }
+
+    /**
+     * Finds the ScanLocationConfig whose scanFolder is the longest prefix of the given path.
+     * Both sides are normalized to forward slashes before comparison to handle
+     * Windows paths regardless of how backslashes were bound from config or stored in MongoDB.
+     * Returns null if no location matches.
+     */
+    ScanLocationConfig resolveOwningLocation(String absolutePath, List<ScanLocationConfig> scanFolders) {
+        String normalizedAbsolutePath = absolutePath.replace('\\', '/');
+        return scanFolders.stream()
+                .filter(loc -> loc.getScanFolder() != null)
+                .filter(loc -> normalizedAbsolutePath.startsWith(loc.getScanFolder().replace('\\', '/')))
+                .max(Comparator.comparingInt(loc -> loc.getScanFolder().length()))
+                .orElse(null);
+    }
+
+    /**
+     * Computes days until the item is eligible for deletion.
+     * eligibleDate = archiveDate + standardDeleteDaysLimit + archiveDeleteDaysHold
+     * Edge cases: archiveDate null → 0; standardDeleteDaysLimit null → 0;
+     * archiveDeleteDaysHold null → treat as 0.
+     */
+    long computeDaysUntilDeletion(FileCatalogItem item, ScanLocationConfig location) {
+        if (item.archiveDate() == null) {
+            return 0L;
+        }
+        Integer standardLimit = location.getStandardDeleteDaysLimit();
+        if (standardLimit == null) {
+            return 0L;
+        }
+        int holdDays = Optional.ofNullable(location.getArchiveDeleteDaysHold()).orElse(0);
+        LocalDate archiveLocalDate = item.archiveDate().toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
+        LocalDate eligibleDate = archiveLocalDate.plusDays((long) standardLimit + holdDays);
+        return ChronoUnit.DAYS.between(LocalDate.now(), eligibleDate);
     }
 
     @Override

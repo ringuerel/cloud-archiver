@@ -90,6 +90,64 @@ Files are placed under `downloadRoot`, preserving their relative path. Missing i
 
 ---
 
+### GET `/file-catalog/pending-deletion`
+
+Returns catalog items that exist in MongoDB but whose file no longer exists on disk — files deleted locally that are still within their cloud retention window. Each result is enriched with the number of days remaining before the item becomes eligible for cloud deletion.
+
+All parameters are optional and combinable.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `fileNameContains` | string | no | Case-insensitive substring match against `fileName` |
+| `fileNameExact` | string | no | Exact match against `fileName` |
+| `path` | string | no | Restrict to entries whose `absolutePath` starts with this prefix |
+
+> `fileNameContains` and `fileNameExact` are mutually exclusive — if both are provided, `fileNameContains` takes precedence.
+
+**Response** `200 OK` — array of `PendingDeletionItem`
+
+```json
+[
+  {
+    "catalogItem": {
+      "absolutePath": "/immich/library/user/2024/photo.jpg",
+      "fileName": "photo.jpg",
+      "fileExtension": "jpg",
+      "parentFolder": "/immich/library/user/2024",
+      "isDirectory": false,
+      "fileSize": 3145728,
+      "archiveDate": "2024-03-15T10:22:00.000+00:00",
+      "crc32c": "abc123==",
+      "lastModified": "2024-03-14T18:00:00Z"
+    },
+    "daysUntilDeletion": 15,
+    "scanFolder": "/immich/library/"
+  }
+]
+```
+
+**`daysUntilDeletion` semantics:**
+
+| Value | Meaning |
+|-------|---------|
+| Positive | Days remaining before the item is eligible for cloud deletion |
+| `0` | Eligible today, or `archiveDate`/`standardDeleteDaysLimit` not configured |
+| Negative | Already past the eligibility date but cleanup hasn't run yet |
+
+**Examples:**
+```
+# All files deleted locally but still held in cloud
+GET /cloud-archiver/file-catalog/pending-deletion
+
+# Filter by partial name
+GET /cloud-archiver/file-catalog/pending-deletion?fileNameContains=vacation
+
+# Filter by exact name under a specific path
+GET /cloud-archiver/file-catalog/pending-deletion?fileNameExact=photo.jpg&path=/immich/library/user/
+```
+
+---
+
 ### POST `/file-catalog/sync`
 
 Trigger a full sync of all configured scan locations immediately (same logic as the scheduled cron job).

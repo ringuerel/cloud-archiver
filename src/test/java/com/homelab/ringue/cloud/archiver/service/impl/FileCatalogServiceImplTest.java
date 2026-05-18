@@ -14,11 +14,15 @@ import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Stream;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -41,6 +45,7 @@ import com.homelab.ringue.cloud.archiver.config.ApplicationProperties;
 import com.homelab.ringue.cloud.archiver.config.ApplicationProperties.CloudProviderConfig;
 import com.homelab.ringue.cloud.archiver.config.ApplicationProperties.ScanLocationConfig;
 import com.homelab.ringue.cloud.archiver.domain.FileCatalogItem;
+import com.homelab.ringue.cloud.archiver.domain.PendingDeletionItem;
 import com.homelab.ringue.cloud.archiver.exception.CloudBackupException;
 import com.homelab.ringue.cloud.archiver.repository.FileCatalogItemRepository;
 import com.homelab.ringue.cloud.archiver.repository.SyncSummaryRepository;
@@ -498,5 +503,339 @@ public class FileCatalogServiceImplTest {
 
         // isScanFolderEmpty must never be called when cleanRemovedFromCloud=false
         Mockito.verify(serviceImplSpy, Mockito.never()).isScanFolderEmpty(Mockito.any());
+    }
+
+    // -------------------------------------------------------------------------
+    // findPendingDeletion tests
+    // -------------------------------------------------------------------------
+
+    private ScanLocationConfig buildLocation(String scanFolder, Integer standardDeleteDaysLimit, Integer archiveDeleteDaysHold) {
+        ScanLocationConfig loc = new ScanLocationConfig();
+        loc.setScanFolder(scanFolder);
+        loc.setStandardDeleteDaysLimit(standardDeleteDaysLimit);
+        loc.setArchiveDeleteDaysHold(archiveDeleteDaysHold);
+        loc.setCollectionFetchSize(500);
+        return loc;
+    }
+
+    private Date daysAgo(int days) {
+        return Date.from(LocalDate.now().minusDays(days).atStartOfDay(ZoneId.systemDefault()).toInstant());
+    }
+
+    @Test
+    void findPendingDeletion_noFilter_returnsAllMissingFiles() {
+        FileCatalogItem missing1 = new FileCatalogItem("/scan/a.jpg", "a.jpg", "jpg", "/scan", false, 100L, daysAgo(10), "crc1", Instant.now());
+        FileCatalogItem missing2 = new FileCatalogItem("/scan/b.jpg", "b.jpg", "jpg", "/scan", false, 200L, daysAgo(5), "crc2", Instant.now());
+        FileCatalogItem existing = new FileCatalogItem("/scan/c.jpg", "c.jpg", "jpg", "/scan", false, 300L, daysAgo(3), "crc3", Instant.now());
+
+        Page<FileCatalogItem> page = buildSinglePage(Arrays.asList(missing1, missing2, existing));
+        Mockito.when(fileCatalogItemRepository.findAll(Mockito.any(org.springframework.data.domain.Pageable.class))).thenReturn(page);
+        Mockito.when(applicationProperties.getScanFolders()).thenReturn(
+                List.of(buildLocation("/scan/", 30, 10)));
+
+        try (MockedStatic<Files> mockedFiles = mockStatic(Files.class)) {
+            mockedFiles.when(() -> Files.notExists(Path.of("/scan/a.jpg"))).thenReturn(true);
+            mockedFiles.when(() -> Files.notExists(Path.of("/scan/b.jpg"))).thenReturn(true);
+            mockedFiles.when(() -> Files.notExists(Path.of("/scan/c.jpg"))).thenReturn(false);
+
+            List<PendingDeletionItem> result = serviceImplSpy.findPendingDeletion(Optional.empty(), Optional.empty(), Optional.empty());
+
+            assertEquals(2, result.size());
+            assertTrue(result.stream().anyMatch(r -> r.catalogItem().fileName().equals("a.jpg")));
+            assertTrue(result.stream().anyMatch(r -> r.catalogItem().fileName().equals("b.jpg")));
+        }
+    }
+
+    @Test
+    void findPendingDeletion_fileNameContains_delegatesToRepository() {
+        FileCatalogItem item1 = new FileCatalogItem("/scan/photo.jpg", "photo.jpg", "jpg", "/scan", false, 100L, daysAgo(10), "crc1", Instant.now());
+
+        Page<FileCatalogItem> page = buildSinglePage(List.of(item1));
+        Mockito.when(fileCatalogItemRepository.findByFileNameContainsIgnoreCase(Mockito.eq("PHOTO"), Mockito.any()))
+               .thenReturn(page);
+        Mockito.when(applicationProperties.getScanFolders()).thenReturn(
+                List.of(buildLocation("/scan/", 30, 0)));
+
+        try (MockedStatic<Files> mockedFiles = mockStatic(Files.class)) {
+            mockedFiles.when(() -> Files.notExists(Mockito.any(Path.class))).thenReturn(true);
+
+            List<PendingDeletionItem> result = serviceImplSpy.findPendingDeletion(Optional.of("PHOTO"), Optional.empty(), Optional.empty());
+
+            assertEquals(1, result.size());
+            Mockito.verify(fileCatalogItemRepository)
+                   .findByFileNameContainsIgnoreCase(Mockito.eq("PHOTO"), Mockito.any());
+            Mockito.verify(fileCatalogItemRepository, Mockito.never())
+                   .findAll(Mockito.any(org.springframework.data.domain.Pageable.class));
+        }
+    }
+
+    @Test
+    void findPendingDeletion_fileNameExact_delegatesToRepository() {
+        FileCatalogItem item1 = new FileCatalogItem("/scan/photo.jpg", "photo.jpg", "jpg", "/scan", false, 100L, daysAgo(10), "crc1", Instant.now());
+
+        Page<FileCatalogItem> page = buildSinglePage(List.of(item1));
+        Mockito.when(fileCatalogItemRepository.findByFileName(Mockito.eq("photo.jpg"), Mockito.any()))
+               .thenReturn(page);
+        Mockito.when(applicationProperties.getScanFolders()).thenReturn(
+                List.of(buildLocation("/scan/", 30, 0)));
+
+        try (MockedStatic<Files> mockedFiles = mockStatic(Files.class)) {
+            mockedFiles.when(() -> Files.notExists(Mockito.any(Path.class))).thenReturn(true);
+
+            List<PendingDeletionItem> result = serviceImplSpy.findPendingDeletion(Optional.empty(), Optional.of("photo.jpg"), Optional.empty());
+
+            assertEquals(1, result.size());
+            Mockito.verify(fileCatalogItemRepository)
+                   .findByFileName(Mockito.eq("photo.jpg"), Mockito.any());
+            Mockito.verify(fileCatalogItemRepository, Mockito.never())
+                   .findAll(Mockito.any(org.springframework.data.domain.Pageable.class));
+        }
+    }
+
+    @Test
+    void findPendingDeletion_pathFilter_restrictsToPrefix() {
+        FileCatalogItem item1 = new FileCatalogItem("/scan/sub/a.jpg", "a.jpg", "jpg", "/scan/sub", false, 100L, daysAgo(10), "crc1", Instant.now());
+        FileCatalogItem item2 = new FileCatalogItem("/scan/sub/b.jpg", "b.jpg", "jpg", "/scan/sub", false, 200L, daysAgo(5), "crc2", Instant.now());
+
+        Page<FileCatalogItem> page = buildSinglePage(Arrays.asList(item1, item2));
+        Mockito.when(fileCatalogItemRepository.findByParentFolderStartsWith(Mockito.eq("/scan/sub"), Mockito.any())).thenReturn(page);
+        Mockito.when(applicationProperties.getScanFolders()).thenReturn(
+                List.of(buildLocation("/scan/", 30, 0)));
+
+        try (MockedStatic<Files> mockedFiles = mockStatic(Files.class)) {
+            mockedFiles.when(() -> Files.notExists(Mockito.any(Path.class))).thenReturn(true);
+
+            List<PendingDeletionItem> result = serviceImplSpy.findPendingDeletion(Optional.empty(), Optional.empty(), Optional.of("/scan/sub"));
+
+            assertEquals(2, result.size());
+            Mockito.verify(fileCatalogItemRepository).findByParentFolderStartsWith(Mockito.eq("/scan/sub"), Mockito.any());
+        }
+    }
+
+    @Test
+    void findPendingDeletion_daysUntilDeletion_computedCorrectly() {
+        // archiveDate = 20 days ago, standardDeleteDaysLimit = 30, archiveDeleteDaysHold = 5
+        // eligible = archiveDate + 35 days = 15 days from now
+        FileCatalogItem item = new FileCatalogItem("/scan/a.jpg", "a.jpg", "jpg", "/scan", false, 100L, daysAgo(20), "crc1", Instant.now());
+
+        Page<FileCatalogItem> page = buildSinglePage(List.of(item));
+        Mockito.when(fileCatalogItemRepository.findAll(Mockito.any(org.springframework.data.domain.Pageable.class))).thenReturn(page);
+        Mockito.when(applicationProperties.getScanFolders()).thenReturn(
+                List.of(buildLocation("/scan/", 30, 5)));
+
+        try (MockedStatic<Files> mockedFiles = mockStatic(Files.class)) {
+            mockedFiles.when(() -> Files.notExists(Mockito.any(Path.class))).thenReturn(true);
+
+            List<PendingDeletionItem> result = serviceImplSpy.findPendingDeletion(Optional.empty(), Optional.empty(), Optional.empty());
+
+            assertEquals(1, result.size());
+            assertEquals(15L, result.get(0).daysUntilDeletion());
+        }
+    }
+
+    @Test
+    void findPendingDeletion_archiveDateNull_returnsDaysZero() {
+        FileCatalogItem item = new FileCatalogItem("/scan/a.jpg", "a.jpg", "jpg", "/scan", false, 100L, null, "crc1", Instant.now());
+
+        Page<FileCatalogItem> page = buildSinglePage(List.of(item));
+        Mockito.when(fileCatalogItemRepository.findAll(Mockito.any(org.springframework.data.domain.Pageable.class))).thenReturn(page);
+        Mockito.when(applicationProperties.getScanFolders()).thenReturn(
+                List.of(buildLocation("/scan/", 30, 5)));
+
+        try (MockedStatic<Files> mockedFiles = mockStatic(Files.class)) {
+            mockedFiles.when(() -> Files.notExists(Mockito.any(Path.class))).thenReturn(true);
+
+            List<PendingDeletionItem> result = serviceImplSpy.findPendingDeletion(Optional.empty(), Optional.empty(), Optional.empty());
+
+            assertEquals(1, result.size());
+            assertEquals(0L, result.get(0).daysUntilDeletion());
+        }
+    }
+
+    @Test
+    void findPendingDeletion_standardDeleteDaysLimitNull_returnsDaysZero() {
+        FileCatalogItem item = new FileCatalogItem("/scan/a.jpg", "a.jpg", "jpg", "/scan", false, 100L, daysAgo(10), "crc1", Instant.now());
+
+        Page<FileCatalogItem> page = buildSinglePage(List.of(item));
+        Mockito.when(fileCatalogItemRepository.findAll(Mockito.any(org.springframework.data.domain.Pageable.class))).thenReturn(page);
+        Mockito.when(applicationProperties.getScanFolders()).thenReturn(
+                List.of(buildLocation("/scan/", null, 5)));
+
+        try (MockedStatic<Files> mockedFiles = mockStatic(Files.class)) {
+            mockedFiles.when(() -> Files.notExists(Mockito.any(Path.class))).thenReturn(true);
+
+            List<PendingDeletionItem> result = serviceImplSpy.findPendingDeletion(Optional.empty(), Optional.empty(), Optional.empty());
+
+            assertEquals(1, result.size());
+            assertEquals(0L, result.get(0).daysUntilDeletion());
+        }
+    }
+
+    @Test
+    void findPendingDeletion_archiveDeleteDaysHoldNull_onlyStandardLimitApplies() {
+        // archiveDate = 20 days ago, standardDeleteDaysLimit = 30, archiveDeleteDaysHold = null
+        // eligible = archiveDate + 30 days = 10 days from now
+        FileCatalogItem item = new FileCatalogItem("/scan/a.jpg", "a.jpg", "jpg", "/scan", false, 100L, daysAgo(20), "crc1", Instant.now());
+
+        Page<FileCatalogItem> page = buildSinglePage(List.of(item));
+        Mockito.when(fileCatalogItemRepository.findAll(Mockito.any(org.springframework.data.domain.Pageable.class))).thenReturn(page);
+        Mockito.when(applicationProperties.getScanFolders()).thenReturn(
+                List.of(buildLocation("/scan/", 30, null)));
+
+        try (MockedStatic<Files> mockedFiles = mockStatic(Files.class)) {
+            mockedFiles.when(() -> Files.notExists(Mockito.any(Path.class))).thenReturn(true);
+
+            List<PendingDeletionItem> result = serviceImplSpy.findPendingDeletion(Optional.empty(), Optional.empty(), Optional.empty());
+
+            assertEquals(1, result.size());
+            assertEquals(10L, result.get(0).daysUntilDeletion());
+        }
+    }
+
+    @Test
+    void findPendingDeletion_negativeDays_returnedAsIs() {
+        // archiveDate = 50 days ago, standardDeleteDaysLimit = 30, archiveDeleteDaysHold = 5
+        // eligible = archiveDate + 35 days = 15 days AGO → daysUntilDeletion = -15
+        FileCatalogItem item = new FileCatalogItem("/scan/a.jpg", "a.jpg", "jpg", "/scan", false, 100L, daysAgo(50), "crc1", Instant.now());
+
+        Page<FileCatalogItem> page = buildSinglePage(List.of(item));
+        Mockito.when(fileCatalogItemRepository.findAll(Mockito.any(org.springframework.data.domain.Pageable.class))).thenReturn(page);
+        Mockito.when(applicationProperties.getScanFolders()).thenReturn(
+                List.of(buildLocation("/scan/", 30, 5)));
+
+        try (MockedStatic<Files> mockedFiles = mockStatic(Files.class)) {
+            mockedFiles.when(() -> Files.notExists(Mockito.any(Path.class))).thenReturn(true);
+
+            List<PendingDeletionItem> result = serviceImplSpy.findPendingDeletion(Optional.empty(), Optional.empty(), Optional.empty());
+
+            assertEquals(1, result.size());
+            assertEquals(-15L, result.get(0).daysUntilDeletion());
+        }
+    }
+
+    @Test
+    void findPendingDeletion_noMatchingLocation_returnsDaysZeroAndUnknown() {
+        FileCatalogItem item = new FileCatalogItem("/other/a.jpg", "a.jpg", "jpg", "/other", false, 100L, daysAgo(10), "crc1", Instant.now());
+
+        Page<FileCatalogItem> page = buildSinglePage(List.of(item));
+        Mockito.when(fileCatalogItemRepository.findAll(Mockito.any(org.springframework.data.domain.Pageable.class))).thenReturn(page);
+        Mockito.when(applicationProperties.getScanFolders()).thenReturn(
+                List.of(buildLocation("/scan/", 30, 5)));
+
+        try (MockedStatic<Files> mockedFiles = mockStatic(Files.class)) {
+            mockedFiles.when(() -> Files.notExists(Mockito.any(Path.class))).thenReturn(true);
+
+            List<PendingDeletionItem> result = serviceImplSpy.findPendingDeletion(Optional.empty(), Optional.empty(), Optional.empty());
+
+            assertEquals(1, result.size());
+            assertEquals(0L, result.get(0).daysUntilDeletion());
+            assertEquals("unknown", result.get(0).scanFolder());
+        }
+    }
+
+    @Test
+    void findPendingDeletion_longestPrefixWins() {
+        // Two locations: /scan/ and /scan/sub/ — item is under /scan/sub/
+        ScanLocationConfig shortLoc = buildLocation("/scan/", 10, 0);
+        ScanLocationConfig longLoc = buildLocation("/scan/sub/", 30, 5);
+
+        // archiveDate = 20 days ago; with longLoc: eligible = 20 + 35 = 15 days from now
+        FileCatalogItem item = new FileCatalogItem("/scan/sub/a.jpg", "a.jpg", "jpg", "/scan/sub", false, 100L, daysAgo(20), "crc1", Instant.now());
+
+        Page<FileCatalogItem> page = buildSinglePage(List.of(item));
+        Mockito.when(fileCatalogItemRepository.findAll(Mockito.any(org.springframework.data.domain.Pageable.class))).thenReturn(page);
+        Mockito.when(applicationProperties.getScanFolders()).thenReturn(Arrays.asList(shortLoc, longLoc));
+
+        try (MockedStatic<Files> mockedFiles = mockStatic(Files.class)) {
+            mockedFiles.when(() -> Files.notExists(Mockito.any(Path.class))).thenReturn(true);
+
+            List<PendingDeletionItem> result = serviceImplSpy.findPendingDeletion(Optional.empty(), Optional.empty(), Optional.empty());
+
+            assertEquals(1, result.size());
+            assertEquals("/scan/sub/", result.get(0).scanFolder());
+            assertEquals(15L, result.get(0).daysUntilDeletion());
+        }
+    }
+
+    @Test
+    void resolveOwningLocation_matchesWhenAbsolutePathUsesBackslashesAndScanFolderUsesThem() {
+        // Simulates Windows: absolutePath from MongoDB has backslashes,
+        // scanFolder from YAML binding also has backslashes
+        ScanLocationConfig loc = buildLocation("C:\\Users\\Ringuerel\\tests", 30, 5);
+        List<ScanLocationConfig> locations = List.of(loc);
+
+        ScanLocationConfig result = serviceImplSpy.resolveOwningLocation(
+                "C:\\Users\\Ringuerel\\tests\\photo.jpg", locations);
+
+        assertNotNull(result, "Should match despite backslash vs forward-slash differences");
+        assertEquals("C:\\Users\\Ringuerel\\tests", result.getScanFolder());
+    }
+
+    @Test
+    void resolveOwningLocation_matchesWhenMixedSeparators() {
+        // absolutePath stored with backslashes, scanFolder configured with forward slashes
+        ScanLocationConfig loc = buildLocation("C:/Users/Ringuerel/tests", 30, 5);
+        List<ScanLocationConfig> locations = List.of(loc);
+
+        ScanLocationConfig result = serviceImplSpy.resolveOwningLocation(
+                "C:\\Users\\Ringuerel\\tests\\photo.jpg", locations);
+
+        assertNotNull(result, "Should match when separators differ between absolutePath and scanFolder");
+    }
+
+    @Test
+    void findPendingDeletion_fileNameContainsAndPath_delegatesToCombinedRepositoryMethod() {
+        FileCatalogItem item = new FileCatalogItem("/scan/sub/photo.jpg", "photo.jpg", "jpg", "/scan/sub", false, 100L, daysAgo(10), "crc1", Instant.now());
+
+        Page<FileCatalogItem> page = buildSinglePage(List.of(item));
+        Mockito.when(fileCatalogItemRepository.findByFileNameContainsIgnoreCaseAndParentFolderStartsWith(
+                Mockito.eq("photo"), Mockito.eq("/scan/sub"), Mockito.any()))
+               .thenReturn(page);
+        Mockito.when(applicationProperties.getScanFolders()).thenReturn(
+                List.of(buildLocation("/scan/", 30, 0)));
+
+        try (MockedStatic<Files> mockedFiles = mockStatic(Files.class)) {
+            mockedFiles.when(() -> Files.notExists(Mockito.any(Path.class))).thenReturn(true);
+
+            List<PendingDeletionItem> result = serviceImplSpy.findPendingDeletion(
+                    Optional.of("photo"), Optional.empty(), Optional.of("/scan/sub"));
+
+            assertEquals(1, result.size());
+            Mockito.verify(fileCatalogItemRepository)
+                   .findByFileNameContainsIgnoreCaseAndParentFolderStartsWith(
+                           Mockito.eq("photo"), Mockito.eq("/scan/sub"), Mockito.any());
+        }
+    }
+
+    @Test
+    void findPendingDeletion_fileNameExactAndPath_delegatesToCombinedRepositoryMethod() {
+        FileCatalogItem item = new FileCatalogItem("/scan/sub/photo.jpg", "photo.jpg", "jpg", "/scan/sub", false, 100L, daysAgo(10), "crc1", Instant.now());
+
+        Page<FileCatalogItem> page = buildSinglePage(List.of(item));
+        Mockito.when(fileCatalogItemRepository.findByFileNameAndParentFolderStartsWith(
+                Mockito.eq("photo.jpg"), Mockito.eq("/scan/sub"), Mockito.any()))
+               .thenReturn(page);
+        Mockito.when(applicationProperties.getScanFolders()).thenReturn(
+                List.of(buildLocation("/scan/", 30, 0)));
+
+        try (MockedStatic<Files> mockedFiles = mockStatic(Files.class)) {
+            mockedFiles.when(() -> Files.notExists(Mockito.any(Path.class))).thenReturn(true);
+
+            List<PendingDeletionItem> result = serviceImplSpy.findPendingDeletion(
+                    Optional.empty(), Optional.of("photo.jpg"), Optional.of("/scan/sub"));
+
+            assertEquals(1, result.size());
+            Mockito.verify(fileCatalogItemRepository)
+                   .findByFileNameAndParentFolderStartsWith(
+                           Mockito.eq("photo.jpg"), Mockito.eq("/scan/sub"), Mockito.any());
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private Page<FileCatalogItem> buildSinglePage(List<FileCatalogItem> items) {
+        Page<FileCatalogItem> page = Mockito.mock(Page.class);
+        Mockito.when(page.getContent()).thenReturn(items);
+        Mockito.when(page.hasNext()).thenReturn(false);
+        return page;
     }
 }
