@@ -77,6 +77,7 @@ public class ApplicationProperties {
         private String scanFolder;
         private boolean ignoreHiddenFiles;
         private boolean cleanRemovedFromCloud;
+        private boolean deleteIfEmptyEnabled;
         private Integer standardDeleteDaysLimit;
         private Integer archiveDeleteDaysHold;
         private List<String> ignorePatterns;
@@ -103,6 +104,7 @@ public class ApplicationProperties {
             this.scanFolder = locationConfig.getScanFolder();
             this.ignoreHiddenFiles = locationConfig.isIgnoreHiddenFiles();
             this.cleanRemovedFromCloud = locationConfig.isCleanRemovedFromCloud();
+            this.deleteIfEmptyEnabled = locationConfig.isDeleteIfEmptyEnabled();
             this.compiledIgnorePatterns = locationConfig.getCompiledIgnorePatterns();
             this.collectionFetchSize = locationConfig.getCollectionFetchSize();
             this.standardDeleteDaysLimit = locationConfig.getStandardDeleteDaysLimit();

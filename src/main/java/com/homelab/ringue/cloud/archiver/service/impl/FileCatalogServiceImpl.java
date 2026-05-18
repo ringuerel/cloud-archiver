@@ -317,8 +317,43 @@ public class FileCatalogServiceImpl implements FileCatalogService{
         log.info(">>> Starts cloud cleanup for {} using CloudProvider: {}",locationConfig.getScanFolder(),applicationProperties.getCloudProviderConfig().getType());
         catalogCount.set(0);
         catalogSize.set(0);
+        if(isScanFolderEmpty(locationConfig)){
+            if(!locationConfig.isDeleteIfEmptyEnabled()){
+                log.warn("SAFETY GUARD: Scan folder '{}' appears to be empty. Skipping cloud cleanup to prevent unintended mass deletion. " +
+                         "If this is intentional, set 'deleteIfEmptyEnabled: true' (env: APPLICATION_SCANFOLDERS_N_DELETEIFEMPTYENABLED=true) for this location.",
+                         locationConfig.getScanFolder());
+                ScanLocationConfig warningConfig = new ScanLocationConfig(locationConfig);
+                notificationService.notifyError(
+                    "Cleanup skipped — source folder is empty. Set deleteIfEmptyEnabled=true to allow deletion when folder is empty.",
+                    warningConfig);
+                return;
+            }
+            log.info("Scan folder '{}' is empty and deleteIfEmptyEnabled=true — proceeding with cloud cleanup.", locationConfig.getScanFolder());
+        }
         performBucketCleanup(PageRequest.ofSize(locationConfig.getCollectionFetchSize()),locationConfig);
         log.info("<<< Completed cloud cleanup with {} deleted items {} bytes from the CloudProvider {}",catalogCount.get(),catalogSize.get(),applicationProperties.getCloudProviderConfig().getType());
+    }
+
+    /**
+     * Returns true if the scan folder exists but contains no files (directories are not counted).
+     * Also returns true if the folder does not exist at all, treating a missing mount as empty
+     * to protect against accidental mass deletion caused by an unmounted volume.
+     */
+    boolean isScanFolderEmpty(ScanLocationConfig locationConfig) {
+        Path folder = Paths.get(locationConfig.getScanFolder());
+        if (!Files.exists(folder)) {
+            log.warn("Scan folder '{}' does not exist — treating as empty for safety.", locationConfig.getScanFolder());
+            return true;
+        }
+        try (Stream<Path> entries = Files.walk(folder)) {
+            return entries.filter(p -> !p.equals(folder))
+                          .filter(Files::isRegularFile)
+                          .findFirst()
+                          .isEmpty();
+        } catch (IOException e) {
+            log.warn("Could not determine if scan folder '{}' is empty, assuming empty for safety: {}", locationConfig.getScanFolder(), e.getMessage());
+            return true;
+        }
     }
 
     private void performBucketCleanup(Pageable catalogPages,ScanLocationConfig locationConfig) {

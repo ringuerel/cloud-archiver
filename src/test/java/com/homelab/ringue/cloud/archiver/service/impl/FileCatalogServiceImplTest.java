@@ -1,6 +1,7 @@
 package com.homelab.ringue.cloud.archiver.service.impl;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
@@ -159,6 +160,8 @@ public class FileCatalogServiceImplTest {
     })
     void testPerformLocationSyncInvokesCleanupBasedOnConfig(boolean cleanRemovedFromCloud) throws CloudBackupException{
         Mockito.when(scanLocationConfigMock.isCleanRemovedFromCloud()).thenReturn(cleanRemovedFromCloud);
+        // Folder is not empty — guard must not block cleanup
+        Mockito.doReturn(false).when(serviceImplSpy).isScanFolderEmpty(scanLocationConfigMock);
         try(MockedStatic<Files> mockedFiles = mockStatic(Files.class)){
             Path directory = Path.of(TEST_SCAN_FOLDER);
             Stream<Path> mockStream = Arrays.asList("file1.jpg").stream().map(childName -> Path.of(TEST_SCAN_FOLDER+childName));
@@ -343,5 +346,157 @@ public class FileCatalogServiceImplTest {
 
     private Stream<Path> prepareFilesStream(List<String> filesPaths) {
         return filesPaths.stream().map(Path::of);
+    }
+
+    // -------------------------------------------------------------------------
+    // isScanFolderEmpty tests
+    // -------------------------------------------------------------------------
+
+    @Test
+    void isScanFolderEmpty_returnsTrueWhenFolderDoesNotExist() {
+        try (MockedStatic<Files> mockedFiles = mockStatic(Files.class)) {
+            Path folder = Path.of(TEST_SCAN_FOLDER);
+            mockedFiles.when(() -> Files.exists(folder)).thenReturn(false);
+
+            assertTrue(serviceImplSpy.isScanFolderEmpty(scanLocationConfigMock),
+                "A non-existent folder should be treated as empty for safety");
+        }
+    }
+
+    @Test
+    void isScanFolderEmpty_returnsTrueWhenFolderHasNoFiles() throws IOException {
+        try (MockedStatic<Files> mockedFiles = mockStatic(Files.class)) {
+            Path folder = Path.of(TEST_SCAN_FOLDER);
+            mockedFiles.when(() -> Files.exists(folder)).thenReturn(true);
+            mockedFiles.when(() -> Files.walk(folder)).thenReturn(Stream.of(folder));
+            mockedFiles.when(() -> Files.isRegularFile(folder)).thenReturn(false);
+
+            assertTrue(serviceImplSpy.isScanFolderEmpty(scanLocationConfigMock),
+                "A folder containing only directories (no regular files) should be considered empty");
+        }
+    }
+
+    @Test
+    void isScanFolderEmpty_returnsFalseWhenFolderHasAtLeastOneFile() throws IOException {
+        try (MockedStatic<Files> mockedFiles = mockStatic(Files.class)) {
+            Path folder = Path.of(TEST_SCAN_FOLDER);
+            Path file = Path.of(TEST_SCAN_FOLDER + "photo.jpg");
+            mockedFiles.when(() -> Files.exists(folder)).thenReturn(true);
+            mockedFiles.when(() -> Files.walk(folder)).thenReturn(Stream.of(folder, file));
+            mockedFiles.when(() -> Files.isRegularFile(folder)).thenReturn(false);
+            mockedFiles.when(() -> Files.isRegularFile(file)).thenReturn(true);
+
+            assertFalse(serviceImplSpy.isScanFolderEmpty(scanLocationConfigMock),
+                "A folder with at least one regular file should not be considered empty");
+        }
+    }
+
+    @Test
+    void isScanFolderEmpty_returnsTrueWhenWalkThrowsIOException() throws IOException {
+        try (MockedStatic<Files> mockedFiles = mockStatic(Files.class)) {
+            Path folder = Path.of(TEST_SCAN_FOLDER);
+            mockedFiles.when(() -> Files.exists(folder)).thenReturn(true);
+            mockedFiles.when(() -> Files.walk(folder)).thenThrow(new IOException("Permission denied"));
+
+            assertTrue(serviceImplSpy.isScanFolderEmpty(scanLocationConfigMock),
+                "An unreadable folder should be treated as empty for safety");
+        }
+    }
+
+    @Test
+    void isScanFolderEmpty_ignoresSubdirectoriesWhenCountingFiles() throws IOException {
+        try (MockedStatic<Files> mockedFiles = mockStatic(Files.class)) {
+            Path folder = Path.of(TEST_SCAN_FOLDER);
+            Path subdir = Path.of(TEST_SCAN_FOLDER + "subdir");
+            mockedFiles.when(() -> Files.exists(folder)).thenReturn(true);
+            mockedFiles.when(() -> Files.walk(folder)).thenReturn(Stream.of(folder, subdir));
+            mockedFiles.when(() -> Files.isRegularFile(folder)).thenReturn(false);
+            mockedFiles.when(() -> Files.isRegularFile(subdir)).thenReturn(false);
+
+            assertTrue(serviceImplSpy.isScanFolderEmpty(scanLocationConfigMock),
+                "A folder containing only subdirectories should be considered empty");
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // startCloudCleanup safety guard — via performLocationSync
+    // -------------------------------------------------------------------------
+
+    @Test
+    void performLocationSync_skipsCleanupAndNotifiesWhenFolderIsEmptyAndGuardNotEnabled() throws CloudBackupException {
+        Mockito.when(scanLocationConfigMock.isCleanRemovedFromCloud()).thenReturn(true);
+        Mockito.when(scanLocationConfigMock.isDeleteIfEmptyEnabled()).thenReturn(false);
+        Mockito.doReturn(true).when(serviceImplSpy).isScanFolderEmpty(scanLocationConfigMock);
+
+        try (MockedStatic<Files> mockedFiles = mockStatic(Files.class)) {
+            Path directory = Path.of(TEST_SCAN_FOLDER);
+            mockedFiles.when(() -> Files.walk(directory))
+                       .thenReturn(Stream.of(Path.of(TEST_SCAN_FOLDER + "file1.jpg")));
+            serviceImplSpy.performLocationSync(scanLocationConfigMock);
+        }
+
+        // Cleanup catalog query must NOT have been called (only the backup query ran)
+        Mockito.verify(fileCatalogItemRepository, Mockito.times(1))
+               .findByParentFolderStartsWith(Mockito.anyString(), Mockito.any());
+        // Warning notification must have been sent
+        Mockito.verify(notificationService)
+               .notifyError(Mockito.anyString(), Mockito.any(ScanLocationConfig.class));
+    }
+
+    @Test
+    void performLocationSync_proceedsWithCleanupWhenFolderIsEmptyAndGuardIsEnabled() throws CloudBackupException {
+        Mockito.when(scanLocationConfigMock.isCleanRemovedFromCloud()).thenReturn(true);
+        Mockito.when(scanLocationConfigMock.isDeleteIfEmptyEnabled()).thenReturn(true);
+        Mockito.doReturn(true).when(serviceImplSpy).isScanFolderEmpty(scanLocationConfigMock);
+
+        try (MockedStatic<Files> mockedFiles = mockStatic(Files.class)) {
+            Path directory = Path.of(TEST_SCAN_FOLDER);
+            mockedFiles.when(() -> Files.walk(directory))
+                       .thenReturn(Stream.of(Path.of(TEST_SCAN_FOLDER + "file1.jpg")));
+            serviceImplSpy.performLocationSync(scanLocationConfigMock);
+        }
+
+        // Both backup and cleanup catalog queries must have run
+        Mockito.verify(fileCatalogItemRepository, Mockito.times(2))
+               .findByParentFolderStartsWith(Mockito.anyString(), Mockito.any());
+        // No error notification for the guard
+        Mockito.verify(notificationService, Mockito.never())
+               .notifyError(Mockito.anyString(), Mockito.any(ScanLocationConfig.class));
+    }
+
+    @Test
+    void performLocationSync_proceedsWithCleanupNormallyWhenFolderIsNotEmpty() throws CloudBackupException {
+        Mockito.when(scanLocationConfigMock.isCleanRemovedFromCloud()).thenReturn(true);
+        Mockito.when(scanLocationConfigMock.isDeleteIfEmptyEnabled()).thenReturn(false);
+        Mockito.doReturn(false).when(serviceImplSpy).isScanFolderEmpty(scanLocationConfigMock);
+
+        try (MockedStatic<Files> mockedFiles = mockStatic(Files.class)) {
+            Path directory = Path.of(TEST_SCAN_FOLDER);
+            mockedFiles.when(() -> Files.walk(directory))
+                       .thenReturn(Stream.of(Path.of(TEST_SCAN_FOLDER + "file1.jpg")));
+            serviceImplSpy.performLocationSync(scanLocationConfigMock);
+        }
+
+        // Both backup and cleanup catalog queries must have run
+        Mockito.verify(fileCatalogItemRepository, Mockito.times(2))
+               .findByParentFolderStartsWith(Mockito.anyString(), Mockito.any());
+        // No guard notification
+        Mockito.verify(notificationService, Mockito.never())
+               .notifyError(Mockito.anyString(), Mockito.any(ScanLocationConfig.class));
+    }
+
+    @Test
+    void performLocationSync_doesNotCheckEmptyGuardWhenCleanupIsDisabled() throws CloudBackupException {
+        Mockito.when(scanLocationConfigMock.isCleanRemovedFromCloud()).thenReturn(false);
+
+        try (MockedStatic<Files> mockedFiles = mockStatic(Files.class)) {
+            Path directory = Path.of(TEST_SCAN_FOLDER);
+            mockedFiles.when(() -> Files.walk(directory))
+                       .thenReturn(Stream.of(Path.of(TEST_SCAN_FOLDER + "file1.jpg")));
+            serviceImplSpy.performLocationSync(scanLocationConfigMock);
+        }
+
+        // isScanFolderEmpty must never be called when cleanRemovedFromCloud=false
+        Mockito.verify(serviceImplSpy, Mockito.never()).isScanFolderEmpty(Mockito.any());
     }
 }

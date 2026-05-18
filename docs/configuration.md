@@ -43,6 +43,7 @@ Multiple folders can be configured. Each is independent and can have different r
 |----------|-------------------|----------|---------|-------------|
 | `scanFolders[N].scanFolder` | `APPLICATION_SCANFOLDERS_N_SCANFOLDER` | yes | — | Absolute path to scan |
 | `scanFolders[N].cleanRemovedFromCloud` | `APPLICATION_SCANFOLDERS_N_CLEANREMOVEDFROMCLOUD` | no | `false` | Delete from cloud when file is removed locally |
+| `scanFolders[N].deleteIfEmptyEnabled` | `APPLICATION_SCANFOLDERS_N_DELETEIFEMPTYENABLED` | no | `false` | Allow cloud cleanup to run when the source folder is empty or missing. When `false` (default), cleanup is skipped and a warning is logged/notified if the folder is empty — protects against mass deletion caused by an unmounted volume or misconfiguration. |
 | `scanFolders[N].ignoreHiddenFiles` | `APPLICATION_SCANFOLDERS_N_IGNOREHIDDENFILES` | no | `false` | Skip hidden files (dot-files on Linux) |
 | `scanFolders[N].collectionFetchSize` | `APPLICATION_SCANFOLDERS_N_COLLECTIONFETCHSIZE` | no | `500` | MongoDB page size for catalog reads |
 | `scanFolders[N].standardDeleteDaysLimit` | `APPLICATION_SCANFOLDERS_N_STANDARDDELETEDAYSLIMIT` | no | `null` | Days after upload during which deletion is free (Standard class window) |
