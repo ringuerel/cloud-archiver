@@ -1,39 +1,38 @@
-# Cloud Archiver — Documentation
+# Cloud Archiver
 
-Cloud Archiver is a self-hosted Spring Boot service that continuously synchronizes local folders to a cloud storage bucket. It tracks every file in a MongoDB catalog, uses CRC32C checksums to detect changes, and respects configurable retention windows to avoid early-deletion fees on cold storage classes (Nearline, Coldline, Archive).
+Cloud Archiver is a self-hosted Spring Boot service for backing up local folders to cloud object storage. It catalogs every file in MongoDB, uses CRC32C checksums to detect content changes, and can optionally delete cloud objects after local files are removed while respecting cold-storage retention windows.
 
-> **Origin story:** This project was born out of the need to convince a skeptical spouse that family photos and videos were safe, even stored on personal disks. By using a cloud provider for backup, storage costs dropped from ~$10/month to ~$0.50/month for the same files.
+It is designed for homelab and personal-media archive workflows where the local disk remains the source of truth and the cloud bucket is the durable backup copy.
 
----
+## Current Support
 
-## Documentation Index
+| Area | Support |
+|------|---------|
+| Runtime | Java 17, Spring Boot 3.3.2 |
+| Packaging | Docker image, Maven build |
+| Cloud storage | Google Cloud Storage |
+| Database | MongoDB or MongoDB Atlas |
+| Catalog lookup | REST API and Swagger UI |
+| Metrics | Spring Actuator, Micrometer, Prometheus |
+| Notifications | Discord-compatible webhook |
 
-| Document | Description |
-|----------|-------------|
-| [Architecture](docs/architecture.md) | System overview, layer diagram, package structure |
-| [Sync Workflow](docs/sync-workflow.md) | Backup and cleanup flow with Mermaid diagrams |
-| [Data Model](docs/data-model.md) | MongoDB collections, entity fields, state transitions |
-| [API Reference](docs/api-reference.md) | REST endpoints, request/response examples |
-| [Configuration](docs/configuration.md) | All configuration properties and environment variables |
-| [Cloud Provider](docs/cloud-provider.md) | Provider abstraction, GCP implementation, dry-run mode |
-| [Observability](docs/observability.md) | Micrometer metrics, Prometheus endpoint, logging |
-| [Deployment](docs/deployment.md) | Docker Compose, CI/CD pipeline, GCP setup checklist |
+Current version: `0.10.0.001-SNAPSHOT`
 
----
+## Start Here
+
+New users should follow the documentation in this order:
+
+1. [Getting Started](docs/getting-started.md) - first dry run, then first real GCP backup.
+2. [Docker Compose Deployment](docs/install/docker-compose.md) - production-style container setup.
+3. [GCP Setup](docs/install/gcp.md) - bucket, lifecycle, and service-account guidance.
+4. [MongoDB Atlas Setup](docs/install/mongodb-atlas.md) - database setup and connection string.
+5. [Backup Safety](docs/operations/backup-safety.md) - deletion rules, retention windows, and dry-run caveats.
+6. [Restore Guide](docs/operations/restore-guide.md) - search the catalog and download files from cloud storage.
+7. [Troubleshooting](docs/operations/troubleshooting.md) - common setup and runtime issues.
 
 ## Quick Start
 
-```mermaid
-flowchart LR
-    A["1. Create GCS bucket\n+ lifecycle rule"] --> B["2. Create service account\n+ download JSON key"]
-    B --> C["3. Set up MongoDB\n(Atlas free tier works)"]
-    C --> D["4. Configure docker-compose.yml\n(env vars)"]
-    D --> E["5. Mount volumes\n(scan folders + GCP key)"]
-    E --> F["6. docker compose up -d"]
-    F --> G["7. Check health\nGET /cloud-archiver/actuator/health"]
-```
-
-### Minimum required environment variables
+Minimum environment variables for a real GCP-backed run:
 
 ```bash
 APPLICATION_CLOUDPROVIDERCONFIG_TYPE=GCP
@@ -41,45 +40,56 @@ APPLICATION_CLOUDPROVIDERCONFIG_PROJECTID=<gcp-project-id>
 APPLICATION_CLOUDPROVIDERCONFIG_BUCKETNAME=<bucket-name>
 APPLICATION_CLOUDPROVIDERCONFIG_CREDENTIALSFILEPATH=/cloud-provider/key.json
 
-APPLICATION_SCANFOLDERS_0_SCANFOLDER=/data/my-folder
+APPLICATION_SCANFOLDERS_0_SCANFOLDER=/data/photos
 
 SPRING_DATA_MONGODB_DATABASE=cloud_archiver
 SPRING_DATA_MONGODB_URI=mongodb+srv://user:pass@host/
 ```
 
-> **First run tip:** Set `APPLICATION_CLOUDPROVIDERCONFIG_TYPE=NO_PROVIDER` on the first run to validate your folder configuration and see what *would* be uploaded — without touching the cloud or incurring any costs. Switch to `GCP` once you're satisfied.
+For a safe first validation, use `APPLICATION_CLOUDPROVIDERCONFIG_TYPE=NO_PROVIDER` with a temporary MongoDB database. Dry-run mode still writes catalog entries to MongoDB, so do not use the same database for dry-run and real upload unless you intentionally want that catalog state.
 
----
+## Important Safety Defaults
 
-## Tech Stack
+| Setting | Default | Why it matters |
+|---------|---------|----------------|
+| `cleanRemovedFromCloud` | `false` | Local deletions do not delete cloud objects unless explicitly enabled. |
+| `deleteIfEmptyEnabled` | `false` | Cleanup is skipped when a source folder is empty or missing, protecting against unmounted volumes. |
+| `NO_PROVIDER` | opt-in | Walks folders and writes MongoDB catalog data without touching cloud storage. |
+| `standardDeleteDaysLimit` / `archiveDeleteDaysHold` | unset | Lets you align cleanup with GCS lifecycle rules and avoid early-deletion fees. |
 
-| Component | Technology |
-|-----------|-----------|
-| Runtime | Java 17, Spring Boot 3.3.2 |
-| Cloud storage | Google Cloud Storage (`google-cloud-storage` 2.36.1) |
-| Database | MongoDB (Spring Data MongoDB) |
-| Checksums | Guava CRC32C |
-| Metrics | Micrometer + Prometheus |
-| API docs | SpringDoc OpenAPI (Swagger UI) |
-| Notifications | Discord webhook (WebFlux `RestTemplate`) |
-| Container | Docker (Alpine + OpenJDK 17) |
-| Build | Maven + gitflow-maven-plugin |
-| CI/CD | GitHub Actions → Docker Hub |
+## Documentation Map
 
----
+### User and Operator Docs
 
-## Version
+| Document | Purpose |
+|----------|---------|
+| [Getting Started](docs/getting-started.md) | First successful dry run and first real backup |
+| [Docker Compose Deployment](docs/install/docker-compose.md) | Container configuration and volume mounts |
+| [GCP Setup](docs/install/gcp.md) | Bucket, lifecycle, IAM, and credentials |
+| [MongoDB Atlas Setup](docs/install/mongodb-atlas.md) | Atlas database setup |
+| [Backup Safety](docs/operations/backup-safety.md) | Source-of-truth model, deletion behavior, retention |
+| [Running Syncs](docs/operations/running-syncs.md) | Scheduled and manual sync behavior |
+| [Restore Guide](docs/operations/restore-guide.md) | Search and download workflows |
+| [Observability](docs/observability.md) | Metrics, health checks, and logging |
+| [Troubleshooting](docs/operations/troubleshooting.md) | Common symptoms and fixes |
 
-Current version: `0.9.9.009-SNAPSHOT`  
-Docker image: `ringuerel/cloud-archiver`
+### Reference and Developer Docs
 
----
+| Document | Purpose |
+|----------|---------|
+| [Configuration Reference](docs/configuration.md) | Full property and environment-variable list |
+| [API Reference](docs/api-reference.md) | REST endpoints and examples |
+| [Data Model](docs/data-model.md) | MongoDB collections and DTOs |
+| [Architecture](docs/architecture.md) | System overview and package structure |
+| [Sync Workflow](docs/sync-workflow.md) | Backup and cleanup sequence diagrams |
+| [Cloud Provider Abstraction](docs/cloud-provider.md) | Provider strategy and GCP implementation |
+| [Development Guide](docs/development/local-development.md) | Local build, tests, and release notes |
 
 ## Planned Features
 
 - AWS and Azure cloud provider support
 - Data deduplication
-- Encryption at rest
+- Encryption before upload
 - Web UI for configuration, monitoring, and file retrieval
 - Resumable uploads for large files
-- Exponential backoff / retry on transient cloud API failures
+- Retry and backoff for transient cloud API failures
