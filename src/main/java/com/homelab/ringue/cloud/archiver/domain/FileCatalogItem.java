@@ -22,5 +22,27 @@ public record FileCatalogItem(
     Long fileSize,
     Date archiveDate,
     String crc32c,
-    Instant lastModified
-    ) {}
+    Instant lastModified,
+    String thumbnailPath,
+    String thumbnailProvider,
+    String thumbnailContentType,
+    Instant thumbnailCreatedAt,
+    String thumbnailStatus,
+    String thumbnailError
+    ) {
+
+    public FileCatalogItem(
+        String absolutePath,
+        String fileName,
+        String fileExtension,
+        String parentFolder,
+        boolean isDirectory,
+        Long fileSize,
+        Date archiveDate,
+        String crc32c,
+        Instant lastModified
+    ) {
+        this(absolutePath, fileName, fileExtension, parentFolder, isDirectory, fileSize, archiveDate, crc32c,
+                lastModified, null, null, null, null, null, null);
+    }
+}

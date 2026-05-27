@@ -159,6 +159,39 @@ Trigger a full sync of all configured scan locations immediately (same logic as 
 
 ---
 
+### POST `/file-catalog/thumbnails/rebuild`
+
+Create or refresh local thumbnail metadata for existing catalog entries without re-uploading original files.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `mode` | string | no | `MISSING_ONLY` | `MISSING_ONLY`, `FAILED_ONLY`, or `FORCE` |
+| `path` | string | no | — | Restrict to entries whose path starts with this prefix |
+| `fileNameContains` | string | no | — | Case-insensitive substring match against `fileName` |
+| `limit` | integer | no | `application.thumbnails.rebuild.defaultLimit` | Maximum number of entries to process |
+
+**Examples:**
+
+```
+POST /cloud-archiver/file-catalog/thumbnails/rebuild?mode=MISSING_ONLY&path=/immich/library
+POST /cloud-archiver/file-catalog/thumbnails/rebuild?mode=FAILED_ONLY&limit=100
+POST /cloud-archiver/file-catalog/thumbnails/rebuild?mode=FORCE&fileNameContains=jpg
+```
+
+**Response** `200 OK`
+
+```json
+{
+  "mode": "MISSING_ONLY",
+  "processedCount": 42,
+  "createdCount": 40,
+  "skippedCount": 1,
+  "failedCount": 1
+}
+```
+
+---
+
 ## Error Handling
 
 Global exception handler (`FileCatalogResponseEntityExceptionHandler`):
