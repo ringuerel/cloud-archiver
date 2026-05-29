@@ -15,6 +15,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.homelab.ringue.cloud.archiver.domain.FileCatalogItem;
 import com.homelab.ringue.cloud.archiver.domain.PendingDeletionItem;
+import com.homelab.ringue.cloud.archiver.domain.ThumbnailRebuildMode;
+import com.homelab.ringue.cloud.archiver.domain.ThumbnailRebuildSummary;
 import com.homelab.ringue.cloud.archiver.service.FileCatalogService;
 
 import io.swagger.v3.oas.annotations.Operation;
@@ -102,6 +104,21 @@ public class FileCatalogController {
             @Parameter(description = "Exact match against fileName") @RequestParam(value = "fileNameExact", required = false) Optional<String> fileNameExact,
             @Parameter(description = "Restrict to entries whose absolutePath starts with this prefix") @RequestParam(value = "path", required = false) Optional<String> path) {
         return fileCatalogService.findPendingDeletion(fileNameContains, fileNameExact, path);
+    }
+
+    @Operation(summary = "Rebuild thumbnails",
+               description = "Creates or refreshes thumbnail metadata for catalog entries without re-uploading original files.",
+               responses = {
+                   @ApiResponse(responseCode = "200", description = "Thumbnail rebuild completed"),
+                   @ApiResponse(responseCode = "500", description = "Internal server error")
+               })
+    @PostMapping("/thumbnails/rebuild")
+    public ThumbnailRebuildSummary rebuildThumbnails(
+            @Parameter(description = "Rebuild mode: MISSING_ONLY, FAILED_ONLY, or FORCE") @RequestParam(value = "mode", defaultValue = "MISSING_ONLY") ThumbnailRebuildMode mode,
+            @Parameter(description = "Optional catalog path prefix") @RequestParam(value = "path", required = false) Optional<String> path,
+            @Parameter(description = "Optional case-insensitive filename substring") @RequestParam(value = "fileNameContains", required = false) Optional<String> fileNameContains,
+            @Parameter(description = "Maximum number of items to process") @RequestParam(value = "limit", required = false) Optional<Integer> limit) {
+        return fileCatalogService.rebuildThumbnails(mode, path, fileNameContains, limit);
     }
 
     @Operation(summary = "Trigger a manual sync process",

@@ -70,6 +70,7 @@ For a safe first validation, use `APPLICATION_CLOUDPROVIDERCONFIG_TYPE=NO_PROVID
 | [Backup Safety](docs/operations/backup-safety.md) | Source-of-truth model, deletion behavior, retention |
 | [Running Syncs](docs/operations/running-syncs.md) | Scheduled and manual sync behavior |
 | [Restore Guide](docs/operations/restore-guide.md) | Search and download workflows |
+| [Thumbnails](docs/operations/thumbnails.md) | Local thumbnail cache, rebuilds, and video thumbnail plan |
 | [Observability](docs/observability.md) | Metrics, health checks, and logging |
 | [Troubleshooting](docs/operations/troubleshooting.md) | Common symptoms and fixes |
 

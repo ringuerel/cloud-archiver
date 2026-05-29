@@ -1,6 +1,8 @@
 package com.homelab.ringue.cloud.archiver.controller;
 
 import com.homelab.ringue.cloud.archiver.domain.FileCatalogItem;
+import com.homelab.ringue.cloud.archiver.domain.ThumbnailRebuildMode;
+import com.homelab.ringue.cloud.archiver.domain.ThumbnailRebuildSummary;
 import com.homelab.ringue.cloud.archiver.service.FileCatalogService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -123,5 +125,29 @@ public class FileCatalogControllerTest {
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().string(is("Invalid date format. Please use yyyy-MM-dd.")));
+    }
+
+    @Test
+    void rebuildThumbnails_shouldReturnSummary() throws Exception {
+        ThumbnailRebuildSummary summary = new ThumbnailRebuildSummary(ThumbnailRebuildMode.MISSING_ONLY, 3, 2, 1, 0);
+        when(fileCatalogService.rebuildThumbnails(
+                any(ThumbnailRebuildMode.class),
+                any(Optional.class),
+                any(Optional.class),
+                any(Optional.class)))
+                .thenReturn(summary);
+
+        mockMvc.perform(post("/file-catalog/thumbnails/rebuild")
+                        .param("mode", "MISSING_ONLY")
+                        .param("path", "/scan")
+                        .param("fileNameContains", "photo")
+                        .param("limit", "3")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.mode").value("MISSING_ONLY"))
+                .andExpect(jsonPath("$.processedCount").value(3))
+                .andExpect(jsonPath("$.createdCount").value(2))
+                .andExpect(jsonPath("$.skippedCount").value(1))
+                .andExpect(jsonPath("$.failedCount").value(0));
     }
 }

@@ -46,12 +46,16 @@ import com.homelab.ringue.cloud.archiver.config.ApplicationProperties.ScanLocati
 import com.homelab.ringue.cloud.archiver.domain.FileCatalogItem;
 import com.homelab.ringue.cloud.archiver.domain.PendingDeletionItem;
 import com.homelab.ringue.cloud.archiver.domain.SyncSummaryItem;
+import com.homelab.ringue.cloud.archiver.domain.ThumbnailRebuildMode;
+import com.homelab.ringue.cloud.archiver.domain.ThumbnailRebuildSummary;
+import com.homelab.ringue.cloud.archiver.domain.ThumbnailStatus;
 import com.homelab.ringue.cloud.archiver.exception.CloudBackupException;
 import com.homelab.ringue.cloud.archiver.repository.FileCatalogItemRepository;
 import com.homelab.ringue.cloud.archiver.repository.SyncSummaryRepository;
 import com.homelab.ringue.cloud.archiver.service.FileCatalogItemMapper;
 import com.homelab.ringue.cloud.archiver.service.FileCatalogService;
 import com.homelab.ringue.cloud.archiver.service.NotificationService;
+import com.homelab.ringue.cloud.archiver.service.ThumbnailService;
 
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
@@ -131,6 +135,7 @@ public class FileCatalogServiceImpl implements FileCatalogService{
     private ApplicationProperties applicationProperties;
 
     private NotificationService notificationService;
+    private ThumbnailService thumbnailService;
     private SyncLockManager syncLockManager;
     private final MeterRegistry meterRegistry;
     private Counter filesUploadedCounter;
@@ -146,13 +151,14 @@ public class FileCatalogServiceImpl implements FileCatalogService{
 
 
     @Autowired
-    public FileCatalogServiceImpl(FileCatalogItemRepository fileCatalogItemRepository, FileCatalogItemMapper fileCatalogItemMapper,CloudProviderFactory cloudProviderFactory, ApplicationProperties applicationProperties,SyncSummaryRepository syncSummaryRepository, NotificationService notificationService, SyncLockManager syncLockManager, MeterRegistry meterRegistry){
+    public FileCatalogServiceImpl(FileCatalogItemRepository fileCatalogItemRepository, FileCatalogItemMapper fileCatalogItemMapper,CloudProviderFactory cloudProviderFactory, ApplicationProperties applicationProperties,SyncSummaryRepository syncSummaryRepository, NotificationService notificationService, ThumbnailService thumbnailService, SyncLockManager syncLockManager, MeterRegistry meterRegistry){
         this.fileCatalogItemRepository = fileCatalogItemRepository;
         this.fileCatalogItemMapper = fileCatalogItemMapper;
         this.cloudProviderFactory = cloudProviderFactory;
         this.applicationProperties = applicationProperties;
         this.syncSummaryRepository = syncSummaryRepository;
         this.notificationService = notificationService;
+        this.thumbnailService = thumbnailService;
         this.syncLockManager = syncLockManager;
         this.meterRegistry = meterRegistry;
 
@@ -264,6 +270,68 @@ public class FileCatalogServiceImpl implements FileCatalogService{
                 .filter(item -> Files.notExists(Paths.get(item.absolutePath())))
                 .map(item -> toPendingDeletionItem(item, scanFolders))
                 .toList();
+    }
+
+    @Override
+    public ThumbnailRebuildSummary rebuildThumbnails(ThumbnailRebuildMode mode, Optional<String> path, Optional<String> fileNameContains, Optional<Integer> limit) {
+        int pageSize = applicationProperties.getThumbnailsConfig().getRebuild().getPageSize();
+        int maxItems = limit.orElse(applicationProperties.getThumbnailsConfig().getRebuild().getDefaultLimit());
+        String fixedPath = path.map(this::fixLocationPath).orElse(null);
+
+        int processed = 0;
+        int created = 0;
+        int skipped = 0;
+        int failed = 0;
+        Pageable pageRequest = PageRequest.ofSize(pageSize);
+        Page<FileCatalogItem> page;
+
+        do {
+            page = queryForThumbnailRebuild(fileNameContains, fixedPath, pageRequest);
+            for (FileCatalogItem item : page.getContent()) {
+                if (processed >= maxItems) {
+                    return new ThumbnailRebuildSummary(mode, processed, created, skipped, failed);
+                }
+                if (!shouldRebuildThumbnail(item, mode)) {
+                    continue;
+                }
+                processed++;
+                FileCatalogItem updatedItem = thumbnailService.createOrUpdateThumbnail(item, mode == ThumbnailRebuildMode.FORCE);
+                fileCatalogItemRepository.save(updatedItem);
+                if (ThumbnailStatus.CREATED.name().equals(updatedItem.thumbnailStatus())) {
+                    created++;
+                } else if (ThumbnailStatus.FAILED.name().equals(updatedItem.thumbnailStatus())) {
+                    failed++;
+                } else {
+                    skipped++;
+                }
+            }
+            pageRequest = page.nextPageable();
+        } while (page.hasNext());
+
+        return new ThumbnailRebuildSummary(mode, processed, created, skipped, failed);
+    }
+
+    private Page<FileCatalogItem> queryForThumbnailRebuild(Optional<String> fileNameContains, String fixedPath, Pageable pageRequest) {
+        if (fileNameContains.isPresent() && fixedPath != null) {
+            return fileCatalogItemRepository.findByFileNameContainsIgnoreCaseAndParentFolderStartsWith(
+                    fileNameContains.get(), fixedPath, pageRequest);
+        }
+        if (fileNameContains.isPresent()) {
+            return fileCatalogItemRepository.findByFileNameContainsIgnoreCase(fileNameContains.get(), pageRequest);
+        }
+        if (fixedPath != null) {
+            return fileCatalogItemRepository.findByParentFolderStartsWith(fixedPath, pageRequest);
+        }
+        return fileCatalogItemRepository.findAll(pageRequest);
+    }
+
+    private boolean shouldRebuildThumbnail(FileCatalogItem item, ThumbnailRebuildMode mode) {
+        return switch (mode) {
+            case FORCE -> true;
+            case FAILED_ONLY -> ThumbnailStatus.FAILED.name().equals(item.thumbnailStatus());
+            case MISSING_ONLY -> (item.thumbnailPath() == null || item.thumbnailPath().isBlank())
+                    && !ThumbnailStatus.SKIPPED.name().equals(item.thumbnailStatus());
+        };
     }
 
     /**
@@ -591,7 +659,11 @@ public class FileCatalogServiceImpl implements FileCatalogService{
             gcpUploadBytesSummary.record(fileCatalogItem.fileSize());
 
             log.info("[GCP] Uploaded {} ({} bytes) in {} ms", fileCatalogItem.absolutePath(), fileCatalogItem.fileSize(), durationMs);
-            fileCatalogItemRepository.save(fileCatalogItem);
+            FileCatalogItem savedItem = Optional.ofNullable(fileCatalogItemRepository.save(fileCatalogItem)).orElse(fileCatalogItem);
+            FileCatalogItem thumbnailUpdatedItem = thumbnailService.createOrUpdateThumbnail(savedItem, false);
+            if (thumbnailUpdatedItem != null && thumbnailUpdatedItem != savedItem) {
+                fileCatalogItemRepository.save(thumbnailUpdatedItem);
+            }
             catalogCount.incrementAndGet();
             catalogSize.addAndGet(fileCatalogItem.fileSize());
             filesUploadedCounter.increment();
@@ -638,6 +710,7 @@ public class FileCatalogServiceImpl implements FileCatalogService{
             long durationMs = (System.nanoTime() - startTime) / 1_000_000;
 
             log.info("[GCP] Deleted {} ({} bytes) in {} ms", filecatalogitem.absolutePath(), filecatalogitem.fileSize(), durationMs);
+            deleteThumbnailForCatalogEol(filecatalogitem);
             fileCatalogItemRepository.delete(filecatalogitem);
             catalogCount.incrementAndGet();
             catalogSize.addAndGet(filecatalogitem.fileSize());
@@ -646,6 +719,10 @@ public class FileCatalogServiceImpl implements FileCatalogService{
         }catch(Exception e){
             log.error("[GCP] Unable to delete {} from the CloudProvider {}, item will be preserved in the catalog database for next iteration attempt", filecatalogitem.absolutePath(),applicationProperties.getCloudProviderConfig().getType(),e);
         }
+    }
+
+    private void deleteThumbnailForCatalogEol(FileCatalogItem filecatalogitem) {
+        thumbnailService.deleteThumbnail(filecatalogitem);
     }
 
     protected FileCatalogItem getCrC32CPopulatedItem(FileCatalogItem filecatalogitem){

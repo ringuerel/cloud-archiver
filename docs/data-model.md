@@ -18,6 +18,12 @@ erDiagram
         date archiveDate "set on first upload; null if not yet uploaded"
         string crc32c "Base64-encoded CRC32C checksum"
         instant lastModified "filesystem mtime"
+        string thumbnailPath "local thumbnail path; absent/null if none"
+        string thumbnailProvider "GENERATED or future IMMICH"
+        string thumbnailContentType "e.g. image/jpeg"
+        instant thumbnailCreatedAt "thumbnail creation timestamp"
+        string thumbnailStatus "CREATED, SKIPPED, FAILED"
+        string thumbnailError "last thumbnail error or skip reason"
     }
 
     SYNC_SUMMARY {

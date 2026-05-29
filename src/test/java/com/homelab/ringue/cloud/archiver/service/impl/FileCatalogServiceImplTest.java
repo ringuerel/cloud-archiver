@@ -46,11 +46,15 @@ import com.homelab.ringue.cloud.archiver.config.ApplicationProperties.CloudProvi
 import com.homelab.ringue.cloud.archiver.config.ApplicationProperties.ScanLocationConfig;
 import com.homelab.ringue.cloud.archiver.domain.FileCatalogItem;
 import com.homelab.ringue.cloud.archiver.domain.PendingDeletionItem;
+import com.homelab.ringue.cloud.archiver.domain.ThumbnailRebuildMode;
+import com.homelab.ringue.cloud.archiver.domain.ThumbnailRebuildSummary;
+import com.homelab.ringue.cloud.archiver.domain.ThumbnailStatus;
 import com.homelab.ringue.cloud.archiver.exception.CloudBackupException;
 import com.homelab.ringue.cloud.archiver.repository.FileCatalogItemRepository;
 import com.homelab.ringue.cloud.archiver.repository.SyncSummaryRepository;
 import com.homelab.ringue.cloud.archiver.service.FileCatalogItemMapper;
 import com.homelab.ringue.cloud.archiver.service.NotificationService;
+import com.homelab.ringue.cloud.archiver.service.ThumbnailService;
 import com.homelab.ringue.cloud.archiver.service.SyncLockManager;
 
 import io.micrometer.core.instrument.Counter;
@@ -97,6 +101,9 @@ public class FileCatalogServiceImplTest {
     private NotificationService notificationService;
 
     @Mock
+    private ThumbnailService thumbnailService;
+
+    @Mock
     private CloudProvider cloudProvider;
 
     @Mock
@@ -126,6 +133,7 @@ public class FileCatalogServiceImplTest {
             applicationProperties,
             summaryRepository,
             notificationService,
+            thumbnailService,
             syncLockManager,
             meterRegistry
         ));
@@ -291,6 +299,7 @@ public class FileCatalogServiceImplTest {
             applicationProperties,
             summaryRepository,
             notificationService,
+            thumbnailService,
             syncLockManager,
             simpleRegistry
         );
@@ -543,6 +552,8 @@ public class FileCatalogServiceImplTest {
             assertEquals(2, result.size());
             assertTrue(result.stream().anyMatch(r -> r.catalogItem().fileName().equals("a.jpg")));
             assertTrue(result.stream().anyMatch(r -> r.catalogItem().fileName().equals("b.jpg")));
+            Mockito.verify(thumbnailService, Mockito.never()).deleteThumbnail(Mockito.any());
+            Mockito.verify(fileCatalogItemRepository, Mockito.never()).delete(Mockito.any());
         }
     }
 
@@ -829,6 +840,122 @@ public class FileCatalogServiceImplTest {
                    .findByFileNameAndParentFolderStartsWith(
                            Mockito.eq("photo.jpg"), Mockito.eq("/scan/sub"), Mockito.any());
         }
+    }
+
+    @Test
+    void performCloudBackup_afterUploadCreatesThumbnailAndSavesMetadata() throws Exception {
+        FileCatalogServiceImpl service = new FileCatalogServiceImpl(
+            fileCatalogItemRepository,
+            fileCatalogItemMapper,
+            cloudProviderFactory,
+            applicationProperties,
+            summaryRepository,
+            notificationService,
+            thumbnailService,
+            syncLockManager,
+            new SimpleMeterRegistry()
+        );
+        FileCatalogItem source = new FileCatalogItem("/scan/photo.jpg", "photo.jpg", "jpg", "/scan", false, 100L, null, "crc1", Instant.now());
+        FileCatalogItem archived = new FileCatalogItem("/scan/photo.jpg", "photo.jpg", "jpg", "/scan", false, 100L, new Date(), "crc1", Instant.now());
+        FileCatalogItem withThumbnail = new FileCatalogItem(
+                archived.absolutePath(), archived.fileName(), archived.fileExtension(), archived.parentFolder(),
+                archived.isDirectory(), archived.fileSize(), archived.archiveDate(), archived.crc32c(), archived.lastModified(),
+                "/thumbs/photo.jpg", "GENERATED", "image/jpeg", Instant.now(), ThumbnailStatus.CREATED.name(), null);
+
+        Mockito.when(fileCatalogItemMapper.mapFromFileCatalogItemAddArchiveDate(source)).thenReturn(archived);
+        Mockito.when(fileCatalogItemRepository.save(archived)).thenReturn(archived);
+        Mockito.when(thumbnailService.createOrUpdateThumbnail(archived, false)).thenReturn(withThumbnail);
+
+        service.performCloudBackup(source);
+
+        Mockito.verify(cloudProvider).upload(archived);
+        Mockito.verify(thumbnailService).createOrUpdateThumbnail(archived, false);
+        Mockito.verify(fileCatalogItemRepository).save(archived);
+        Mockito.verify(fileCatalogItemRepository).save(withThumbnail);
+    }
+
+    @Test
+    void rebuildThumbnails_missingOnlyProcessesMissingAndPersistsResult() {
+        FileCatalogItem missing = new FileCatalogItem("/scan/a.jpg", "a.jpg", "jpg", "/scan", false, 100L, daysAgo(1), "crc1", Instant.now());
+        FileCatalogItem existing = new FileCatalogItem(
+                "/scan/b.jpg", "b.jpg", "jpg", "/scan", false, 100L, daysAgo(1), "crc2", Instant.now(),
+                "/thumbs/b.jpg", "GENERATED", "image/jpeg", Instant.now(), ThumbnailStatus.CREATED.name(), null);
+        FileCatalogItem skipped = new FileCatalogItem(
+                "/scan/c.txt", "c.txt", "txt", "/scan", false, 100L, daysAgo(1), "crc3", Instant.now(),
+                null, "GENERATED", null, null, ThumbnailStatus.SKIPPED.name(), "Unsupported");
+        FileCatalogItem updated = new FileCatalogItem(
+                missing.absolutePath(), missing.fileName(), missing.fileExtension(), missing.parentFolder(),
+                missing.isDirectory(), missing.fileSize(), missing.archiveDate(), missing.crc32c(), missing.lastModified(),
+                "/thumbs/a.jpg", "GENERATED", "image/jpeg", Instant.now(), ThumbnailStatus.CREATED.name(), null);
+
+        Mockito.when(applicationProperties.getThumbnailsConfig()).thenReturn(new ApplicationProperties.ThumbnailsConfig());
+        Page<FileCatalogItem> page = buildSinglePage(List.of(missing, existing, skipped));
+        Mockito.when(fileCatalogItemRepository.findAll(Mockito.any(org.springframework.data.domain.Pageable.class))).thenReturn(page);
+        Mockito.when(thumbnailService.createOrUpdateThumbnail(missing, false)).thenReturn(updated);
+
+        ThumbnailRebuildSummary summary = serviceImplSpy.rebuildThumbnails(
+                ThumbnailRebuildMode.MISSING_ONLY, Optional.empty(), Optional.empty(), Optional.of(10));
+
+        assertEquals(ThumbnailRebuildMode.MISSING_ONLY, summary.mode());
+        assertEquals(1, summary.processedCount());
+        assertEquals(1, summary.createdCount());
+        assertEquals(0, summary.skippedCount());
+        assertEquals(0, summary.failedCount());
+        Mockito.verify(thumbnailService).createOrUpdateThumbnail(missing, false);
+        Mockito.verify(thumbnailService, Mockito.never()).createOrUpdateThumbnail(existing, false);
+        Mockito.verify(thumbnailService, Mockito.never()).createOrUpdateThumbnail(skipped, false);
+        Mockito.verify(fileCatalogItemRepository).save(updated);
+    }
+
+    @Test
+    void rebuildThumbnails_forceProcessesExistingThumbnails() {
+        FileCatalogItem existing = new FileCatalogItem(
+                "/scan/b.jpg", "b.jpg", "jpg", "/scan", false, 100L, daysAgo(1), "crc2", Instant.now(),
+                "/thumbs/b.jpg", "GENERATED", "image/jpeg", Instant.now(), ThumbnailStatus.CREATED.name(), null);
+        FileCatalogItem updated = new FileCatalogItem(
+                existing.absolutePath(), existing.fileName(), existing.fileExtension(), existing.parentFolder(),
+                existing.isDirectory(), existing.fileSize(), existing.archiveDate(), existing.crc32c(), existing.lastModified(),
+                "/thumbs/b-new.jpg", "GENERATED", "image/jpeg", Instant.now(), ThumbnailStatus.CREATED.name(), null);
+
+        Mockito.when(applicationProperties.getThumbnailsConfig()).thenReturn(new ApplicationProperties.ThumbnailsConfig());
+        Page<FileCatalogItem> page = buildSinglePage(List.of(existing));
+        Mockito.when(fileCatalogItemRepository.findAll(Mockito.any(org.springframework.data.domain.Pageable.class))).thenReturn(page);
+        Mockito.when(thumbnailService.createOrUpdateThumbnail(existing, true)).thenReturn(updated);
+
+        ThumbnailRebuildSummary summary = serviceImplSpy.rebuildThumbnails(
+                ThumbnailRebuildMode.FORCE, Optional.empty(), Optional.empty(), Optional.of(10));
+
+        assertEquals(1, summary.processedCount());
+        assertEquals(1, summary.createdCount());
+        Mockito.verify(thumbnailService).createOrUpdateThumbnail(existing, true);
+        Mockito.verify(fileCatalogItemRepository).save(updated);
+    }
+
+    @Test
+    void handleFileCatalogItemDelete_deletesThumbnailOnlyWhenCatalogEntryReachesEol() throws Exception {
+        FileCatalogServiceImpl service = new FileCatalogServiceImpl(
+            fileCatalogItemRepository,
+            fileCatalogItemMapper,
+            cloudProviderFactory,
+            applicationProperties,
+            summaryRepository,
+            notificationService,
+            thumbnailService,
+            syncLockManager,
+            new SimpleMeterRegistry()
+        );
+        FileCatalogItem item = new FileCatalogItem(
+                "/scan/deleted.jpg", "deleted.jpg", "jpg", "/scan", false, 100L, daysAgo(1), "crc1", Instant.now(),
+                "/thumbs/deleted.jpg", "GENERATED", "image/jpeg", Instant.now(), ThumbnailStatus.CREATED.name(), null);
+        Mockito.doNothing().when(cloudProvider).delete(item);
+
+        Method deleteMethod = FileCatalogServiceImpl.class.getDeclaredMethod("handleFileCatalogItemDelete", FileCatalogItem.class);
+        deleteMethod.setAccessible(true);
+        deleteMethod.invoke(service, item);
+
+        Mockito.verify(cloudProvider).delete(item);
+        Mockito.verify(thumbnailService).deleteThumbnail(item);
+        Mockito.verify(fileCatalogItemRepository).delete(item);
     }
 
     @SuppressWarnings("unchecked")

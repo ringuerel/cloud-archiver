@@ -9,6 +9,16 @@ application:
     projectId: gcp-project-id-name
     bucketName: gcp-bucket-name
     credentialsFilePath: /path/to/gcp/creds/file
+  thumbnails:
+    enabled: false # Set true to generate thumbnails for supported image files after first upload
+    mode: GENERATE # GENERATE is supported; IMMICH integration is planned
+    localRoot: /thumbnails # Default local root for expendable thumbnail files
+    maxWidth: 512
+    maxHeight: 512
+    outputFormat: jpg
+    rebuild:
+      pageSize: 500
+      defaultLimit: 500
   scanFolders:
     -
       scanFolder: /path/to/sync
@@ -17,6 +27,7 @@ application:
       collectionFetchSize: 2000 # Items to be retrieved from MongoDB at once during deletion checks (The higher the number the less "hits" to Mongo, more memory up front tho)
       standardDeleteDaysLimit: 30 # Days that you estimate to have your bucket items being on a Standard storage class and therefore delete is free, basically if a file is deleted up to 30 days after being uploaded it'll be deleted from GCP as well
       archiveDeleteDaysHold: 365 # Days afte getting a file getting to Archive storage class to be able to perform free delete (so we'll do standardDelete + archiveDeleteDaysHold), basically if a file is deleted before 365 + 30 days it'll not be deleted from GCP until it reaches the 395 days age since upload
+      thumbnailRoot: /thumbnails/primary # Optional override for thumbnails from this scan folder
       ignorepatterns: # Ignores files/folder with the different patterns
         - ^\..+
         - ^_.*
@@ -27,6 +38,7 @@ application:
       collectionFetchSize: 2000 # Items to be retrieved from MongoDB at once during deletion checks (The higher the number the less "hits" to Mongo, more memory up front tho)
       standardDeleteDaysLimit: 30 # Days that you estimate to have your bucket items being on a Standard storage class and therefore delete is free, basically if a file is deleted up to 30 days after being uploaded it'll be deleted from GCP as well
       archiveDeleteDaysHold: 365 # Days afte getting a file getting to Archive storage class to be able to perform free delete (so we'll do standardDelete + archiveDeleteDaysHold), basically if a file is deleted before 365 + 30 days it'll not be deleted from GCP until it reaches the 395 days age since upload
+      thumbnailRoot: /thumbnails/secondary # Optional override for thumbnails from this scan folder
       ignorepatterns: # Ignores files/folder with the different patterns
 management:
   endpoints:
