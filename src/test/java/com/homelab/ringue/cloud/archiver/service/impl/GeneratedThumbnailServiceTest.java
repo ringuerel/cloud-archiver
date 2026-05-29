@@ -1,6 +1,7 @@
 package com.homelab.ringue.cloud.archiver.service.impl;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -104,6 +105,36 @@ class GeneratedThumbnailServiceTest {
         assertEquals(ThumbnailStatus.SKIPPED.name(), result.thumbnailStatus());
     }
 
+    @Test
+    void deleteThumbnail_removesLocalThumbnailAtCatalogEol() throws Exception {
+        ApplicationProperties properties = properties(true);
+        Path thumbnailPath = tempDir.resolve("thumbs").resolve("photo.jpg");
+        java.nio.file.Files.createDirectories(thumbnailPath.getParent());
+        java.nio.file.Files.writeString(thumbnailPath, "thumbnail");
+        FileCatalogItem item = catalogItemWithThumbnail(writeImage("photo.jpg"), thumbnailPath);
+        GeneratedThumbnailService service = new GeneratedThumbnailService(
+                properties,
+                new FileCatalogItemMapperImpl());
+
+        service.deleteThumbnail(item);
+
+        assertFalse(java.nio.file.Files.exists(thumbnailPath));
+    }
+
+    @Test
+    void deleteThumbnail_whenThumbnailFileIsAlreadyAbsent_doesNotFail() throws Exception {
+        ApplicationProperties properties = properties(true);
+        Path thumbnailPath = tempDir.resolve("thumbs").resolve("missing.jpg");
+        FileCatalogItem item = catalogItemWithThumbnail(writeImage("photo.jpg"), thumbnailPath);
+        GeneratedThumbnailService service = new GeneratedThumbnailService(
+                properties,
+                new FileCatalogItemMapperImpl());
+
+        service.deleteThumbnail(item);
+
+        assertFalse(java.nio.file.Files.exists(thumbnailPath));
+    }
+
     private ApplicationProperties properties(boolean thumbnailsEnabled) {
         ApplicationProperties properties = new ApplicationProperties();
 
@@ -128,6 +159,26 @@ class GeneratedThumbnailServiceTest {
                 new Date(),
                 "crc",
                 Instant.now());
+    }
+
+    private FileCatalogItem catalogItemWithThumbnail(Path imagePath, Path thumbnailPath) throws Exception {
+        FileCatalogItem item = catalogItem(imagePath);
+        return new FileCatalogItem(
+                item.absolutePath(),
+                item.fileName(),
+                item.fileExtension(),
+                item.parentFolder(),
+                item.isDirectory(),
+                item.fileSize(),
+                item.archiveDate(),
+                item.crc32c(),
+                item.lastModified(),
+                thumbnailPath.toString(),
+                "GENERATED",
+                "image/jpeg",
+                Instant.now(),
+                ThumbnailStatus.CREATED.name(),
+                null);
     }
 
     private Path writeImage(String fileName) throws Exception {

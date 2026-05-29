@@ -552,6 +552,8 @@ public class FileCatalogServiceImplTest {
             assertEquals(2, result.size());
             assertTrue(result.stream().anyMatch(r -> r.catalogItem().fileName().equals("a.jpg")));
             assertTrue(result.stream().anyMatch(r -> r.catalogItem().fileName().equals("b.jpg")));
+            Mockito.verify(thumbnailService, Mockito.never()).deleteThumbnail(Mockito.any());
+            Mockito.verify(fileCatalogItemRepository, Mockito.never()).delete(Mockito.any());
         }
     }
 
@@ -930,7 +932,7 @@ public class FileCatalogServiceImplTest {
     }
 
     @Test
-    void handleFileCatalogItemDelete_deletesThumbnailBeforeCatalogEntry() throws Exception {
+    void handleFileCatalogItemDelete_deletesThumbnailOnlyWhenCatalogEntryReachesEol() throws Exception {
         FileCatalogServiceImpl service = new FileCatalogServiceImpl(
             fileCatalogItemRepository,
             fileCatalogItemMapper,

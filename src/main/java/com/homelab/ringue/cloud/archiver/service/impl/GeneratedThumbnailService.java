@@ -68,8 +68,13 @@ public class GeneratedThumbnailService implements ThumbnailService {
 
         try {
             Path thumbnailPath = buildThumbnailPath(fileCatalogItem, config);
+            long startTime = System.nanoTime();
             Files.createDirectories(thumbnailPath.getParent());
             createThumbnailFile(sourcePath, thumbnailPath, config.getMaxWidth(), config.getMaxHeight(), config.getOutputFormat());
+            long durationMs = (System.nanoTime() - startTime) / 1_000_000;
+            long thumbnailSize = Files.size(thumbnailPath);
+            log.info("[THUMBNAIL] Created {} ({} bytes) for {} in {} ms",
+                    thumbnailPath, thumbnailSize, fileCatalogItem.absolutePath(), durationMs);
             return fileCatalogItemMapper.mapFromFileCatalogItemUpdateThumbnail(
                     fileCatalogItem,
                     thumbnailPath.toString(),
@@ -89,8 +94,13 @@ public class GeneratedThumbnailService implements ThumbnailService {
         if (fileCatalogItem.thumbnailPath() == null || fileCatalogItem.thumbnailPath().isBlank()) {
             return;
         }
+        Path thumbnailPath = Paths.get(fileCatalogItem.thumbnailPath());
         try {
-            Files.deleteIfExists(Paths.get(fileCatalogItem.thumbnailPath()));
+            if (Files.deleteIfExists(thumbnailPath)) {
+                log.info("[THUMBNAIL] Deleted {} for {}", thumbnailPath, fileCatalogItem.absolutePath());
+            } else {
+                log.debug("[THUMBNAIL] Thumbnail {} for {} was already absent", thumbnailPath, fileCatalogItem.absolutePath());
+            }
         } catch (IOException e) {
             log.warn("Failed deleting thumbnail {} for {}", fileCatalogItem.thumbnailPath(), fileCatalogItem.absolutePath(), e);
         }

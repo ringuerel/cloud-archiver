@@ -84,7 +84,9 @@ Rebuild requires the source file to exist locally for generated thumbnails. If t
 
 ## Cleanup
 
-Thumbnails are expendable local cache files. When Cloud Archiver eventually deletes an original cloud object during cleanup, it also attempts to delete the local thumbnail file referenced by `thumbnailPath`.
+Thumbnails are expendable local cache files, but they intentionally outlive the original local source file. When a source file is deleted locally, the MongoDB catalog entry can remain in a pending-deletion state until the configured retention window reaches EOL. During that period, Cloud Archiver keeps the thumbnail so restore-discovery views can still show a preview.
+
+When Cloud Archiver eventually deletes the archived cloud object and removes the MongoDB catalog record, it also attempts to delete the local thumbnail file referenced by `thumbnailPath`. Thumbnail creation and deletion are logged with the `[THUMBNAIL]` prefix, similar to the cloud file lifecycle logs.
 
 Deleting a local thumbnail file manually is safe. The catalog can rebuild it later if the original source file is still available.
 

@@ -710,7 +710,7 @@ public class FileCatalogServiceImpl implements FileCatalogService{
             long durationMs = (System.nanoTime() - startTime) / 1_000_000;
 
             log.info("[GCP] Deleted {} ({} bytes) in {} ms", filecatalogitem.absolutePath(), filecatalogitem.fileSize(), durationMs);
-            deleteThumbnailIfPresent(filecatalogitem);
+            deleteThumbnailForCatalogEol(filecatalogitem);
             fileCatalogItemRepository.delete(filecatalogitem);
             catalogCount.incrementAndGet();
             catalogSize.addAndGet(filecatalogitem.fileSize());
@@ -721,7 +721,7 @@ public class FileCatalogServiceImpl implements FileCatalogService{
         }
     }
 
-    private void deleteThumbnailIfPresent(FileCatalogItem filecatalogitem) {
+    private void deleteThumbnailForCatalogEol(FileCatalogItem filecatalogitem) {
         thumbnailService.deleteThumbnail(filecatalogitem);
     }
 
