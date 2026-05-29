@@ -50,6 +50,8 @@ graph LR
 
     subgraph Service["Service Layer"]
         FCS["FileCatalogService\n(FileCatalogServiceImpl)"]
+        METRICS["CloudSyncMetricsService"]
+        CTX["CloudSyncContext\n(MDC helper)"]
         NS["NotificationService\n(WebhookNotificationService)"]
         SLM["SyncLockManager"]
         MAPPER["FileCatalogItemMapper"]
@@ -73,11 +75,36 @@ graph LR
     FCS --> CPF
     FCS --> REPO
     FCS --> SREPO
+    FCS --> METRICS
+    FCS --> CTX
     FCS --> NS
+    NS --> CTX
+    METRICS --> REPO
     CPF --> GCP_P
     CPF --> NO_P
     REPO --> MONGO[("MongoDB")]
     SREPO --> MONGO
+```
+
+---
+
+## Sync Execution Flow
+
+```mermaid
+flowchart TD
+    START["TimedTask / controller entrypoint"] --> LOCK["SyncLockManager.acquireLock()"]
+    LOCK -->|"lock busy"| EXIT["Skip run"]
+    LOCK -->|"lock acquired"| RESET["CloudSyncMetricsService.reset()"]
+    RESET --> RUN["Open CloudSyncContext\n(syncRunId)"]
+    RUN --> LOOP["performLocationSync() per scan folder"]
+    LOOP --> BACKUP["startCloudBackup()"]
+    BACKUP --> CLEANUP{"cleanRemovedFromCloud?"}
+    CLEANUP -->|"yes"| DELETE["startCloudCleanup()"]
+    CLEANUP -->|"no"| SUMMARY["addSummaryEntry()"]
+    DELETE --> SUMMARY
+    SUMMARY --> NOTIFY["WebhookNotificationService (@Async)"]
+    NOTIFY --> CLEAR["Clear MDC in finally blocks"]
+    CLEAR --> RELEASE["release lock"]
 ```
 
 ---
@@ -110,19 +137,23 @@ com.homelab.ringue.cloud.archiver
 │   ├── FileCatalogItemRepository.java  MongoRepository for file catalog
 │   └── SyncSummaryRepository.java      MongoRepository for daily summaries
 └── service/
+    ├── CloudSyncContext.java           MDC helper for sync, cleanup, summary, and download phases
+    ├── CloudSyncMetrics.java           Meter bundle used during sync execution
+    ├── CloudSyncMetricsService.java    Shared metric registration/reset ownership
     ├── FileCatalogService.java         Service interface
     ├── FileCatalogItemMapper.java      Mapper interface
     ├── NotificationService.java        Notification interface
     ├── SyncLockManager.java            Concurrency lock
     ├── TimedTask.java                  Scheduled trigger
     ├── impl/
+    │   ├── CloudSyncMetricsServiceImpl.java  Metric registry lifecycle manager
     │   ├── FileCatalogServiceImpl.java Core business logic
     │   ├── FileCatalogItemMapperImpl.java  Path → domain object mapping
     │   └── WebhookNotificationService.java Discord webhook sender
     └── notification/
         ├── WebhookPayload.java         Webhook request body
         ├── Embed.java                  Discord embed object
-        └── Field.java                 Discord embed field
+        └── Field.java                  Discord embed field
 ```
 
 ---
@@ -135,5 +166,5 @@ com.homelab.ringue.cloud.archiver
 | **Factory** | `CloudProviderFactory` | Resolve the correct `CloudProvider` by `CloudProviders` enum at runtime |
 | **Repository** | `FileCatalogItemRepository`, `SyncSummaryRepository` | Decouple data access from service logic |
 | **Observer / async** | `WebhookNotificationService` (`@Async`) | Notifications fire and forget — don't block the sync thread |
-| **Template Method** | `FileCatalogItemMapper` | Consistent object construction with per-call field overrides |
-| **Prototype scope** | `FileCatalogServiceImpl`, `FileCatalogController` | Fresh instance per injection point; avoids shared mutable state across concurrent requests |
+| **Context object** | `CloudSyncContext` | Carry stable MDC fields across sync, cleanup, summary, and async notification boundaries |
+| **Prototype scope** | `FileCatalogServiceImpl`, `FileCatalogController` | Fresh instance per injection point; mutable counters stay per-run while shared metric ownership moves out of the prototype bean |

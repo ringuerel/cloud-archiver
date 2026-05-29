@@ -40,6 +40,8 @@ flowchart TD
 
 For each configured scan folder, the service walks the filesystem and compares every file against the MongoDB catalog.
 
+After the backup-pipeline extraction, `FileCatalogServiceImpl` remains the location-sync orchestrator while `FolderBackupServiceImpl` owns the scan/import path: cache hydration, filtering, CRC32C decisions, upload execution, and metadata-only savebacks. The extracted service also wraps per-file upload decisions in MDC fields (`scanFolder`, `filePath`, `backupDecisionId`) so structured logs survive the parallel stream fan-out without leaking context between files.
+
 ```mermaid
 flowchart TD
     START(["startCloudBackup(scanFolder)"])
