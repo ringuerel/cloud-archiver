@@ -113,8 +113,13 @@ public class ApplicationProperties {
 
     @Data
     public static class RebuildConfig {
+        private static final int DEFAULT_MAX_CONCURRENCY = 2;
+        private static final int MIN_MAX_CONCURRENCY = 1;
+        private static final int MAX_MAX_CONCURRENCY = 16;
+
         private Integer pageSize;
         private Integer defaultLimit;
+        private Integer maxConcurrency;
 
         public int getPageSize() {
             return Optional.ofNullable(pageSize).orElse(500);
@@ -122,6 +127,14 @@ public class ApplicationProperties {
 
         public int getDefaultLimit() {
             return Optional.ofNullable(defaultLimit).orElse(500);
+        }
+
+        public int getMaxConcurrency() {
+            return clampMaxConcurrency(Optional.ofNullable(maxConcurrency).orElse(DEFAULT_MAX_CONCURRENCY));
+        }
+
+        public static int clampMaxConcurrency(int maxConcurrency) {
+            return Math.max(MIN_MAX_CONCURRENCY, Math.min(MAX_MAX_CONCURRENCY, maxConcurrency));
         }
     }
 

@@ -23,6 +23,7 @@ import java.util.Optional;
 import static org.hamcrest.Matchers.is;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -134,6 +135,7 @@ public class FileCatalogControllerTest {
                 any(ThumbnailRebuildMode.class),
                 any(Optional.class),
                 any(Optional.class),
+                any(Optional.class),
                 any(Optional.class)))
                 .thenReturn(summary);
 
@@ -142,6 +144,7 @@ public class FileCatalogControllerTest {
                         .param("path", "/scan")
                         .param("fileNameContains", "photo")
                         .param("limit", "3")
+                        .param("concurrency", "4")
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.mode").value("MISSING_ONLY"))
@@ -149,5 +152,12 @@ public class FileCatalogControllerTest {
                 .andExpect(jsonPath("$.createdCount").value(2))
                 .andExpect(jsonPath("$.skippedCount").value(1))
                 .andExpect(jsonPath("$.failedCount").value(0));
+
+        verify(fileCatalogService).rebuildThumbnails(
+                ThumbnailRebuildMode.MISSING_ONLY,
+                Optional.of("/scan"),
+                Optional.of("photo"),
+                Optional.of(3),
+                Optional.of(4));
     }
 }

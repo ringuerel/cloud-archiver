@@ -169,12 +169,13 @@ Create or refresh local thumbnail metadata for existing catalog entries without 
 | `path` | string | no | — | Restrict to entries whose path starts with this prefix |
 | `fileNameContains` | string | no | — | Case-insensitive substring match against `fileName` |
 | `limit` | integer | no | `application.thumbnails.rebuild.defaultLimit` | Maximum number of entries to process |
+| `concurrency` | integer | no | `application.thumbnails.rebuild.maxConcurrency` | Maximum parallel thumbnail workers for this request, clamped between 1 and 16 |
 
 **Examples:**
 
 ```
 POST /cloud-archiver/file-catalog/thumbnails/rebuild?mode=MISSING_ONLY&path=/immich/library
-POST /cloud-archiver/file-catalog/thumbnails/rebuild?mode=FAILED_ONLY&limit=100
+POST /cloud-archiver/file-catalog/thumbnails/rebuild?mode=FAILED_ONLY&limit=100&concurrency=4
 POST /cloud-archiver/file-catalog/thumbnails/rebuild?mode=FORCE&fileNameContains=jpg
 ```
 

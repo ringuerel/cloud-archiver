@@ -23,6 +23,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -43,6 +45,7 @@ import com.homelab.ringue.cloud.archiver.cloudprovider.CloudProviderFactory;
 import com.homelab.ringue.cloud.archiver.cloudprovider.CloudProviders;
 import com.homelab.ringue.cloud.archiver.config.ApplicationProperties;
 import com.homelab.ringue.cloud.archiver.config.ApplicationProperties.CloudProviderConfig;
+import com.homelab.ringue.cloud.archiver.config.ApplicationProperties.RebuildConfig;
 import com.homelab.ringue.cloud.archiver.config.ApplicationProperties.ScanLocationConfig;
 import com.homelab.ringue.cloud.archiver.domain.FileCatalogItem;
 import com.homelab.ringue.cloud.archiver.domain.PendingDeletionItem;
@@ -894,7 +897,7 @@ public class FileCatalogServiceImplTest {
         Mockito.when(thumbnailService.createOrUpdateThumbnail(missing, false)).thenReturn(updated);
 
         ThumbnailRebuildSummary summary = serviceImplSpy.rebuildThumbnails(
-                ThumbnailRebuildMode.MISSING_ONLY, Optional.empty(), Optional.empty(), Optional.of(10));
+                ThumbnailRebuildMode.MISSING_ONLY, Optional.empty(), Optional.empty(), Optional.of(10), Optional.empty());
 
         assertEquals(ThumbnailRebuildMode.MISSING_ONLY, summary.mode());
         assertEquals(1, summary.processedCount());
@@ -923,12 +926,117 @@ public class FileCatalogServiceImplTest {
         Mockito.when(thumbnailService.createOrUpdateThumbnail(existing, true)).thenReturn(updated);
 
         ThumbnailRebuildSummary summary = serviceImplSpy.rebuildThumbnails(
-                ThumbnailRebuildMode.FORCE, Optional.empty(), Optional.empty(), Optional.of(10));
+                ThumbnailRebuildMode.FORCE, Optional.empty(), Optional.empty(), Optional.of(10), Optional.empty());
 
         assertEquals(1, summary.processedCount());
         assertEquals(1, summary.createdCount());
         Mockito.verify(thumbnailService).createOrUpdateThumbnail(existing, true);
         Mockito.verify(fileCatalogItemRepository).save(updated);
+    }
+
+    @Test
+    void rebuildConfig_maxConcurrencyDefaultsToTwoAndClampsToAllowedRange() {
+        RebuildConfig defaultConfig = new RebuildConfig();
+        assertEquals(2, defaultConfig.getMaxConcurrency());
+
+        RebuildConfig zeroConfig = new RebuildConfig();
+        zeroConfig.setMaxConcurrency(0);
+        assertEquals(1, zeroConfig.getMaxConcurrency());
+
+        RebuildConfig oneConfig = new RebuildConfig();
+        oneConfig.setMaxConcurrency(1);
+        assertEquals(1, oneConfig.getMaxConcurrency());
+
+        RebuildConfig maxConfig = new RebuildConfig();
+        maxConfig.setMaxConcurrency(16);
+        assertEquals(16, maxConfig.getMaxConcurrency());
+
+        RebuildConfig tooHighConfig = new RebuildConfig();
+        tooHighConfig.setMaxConcurrency(99);
+        assertEquals(16, tooHighConfig.getMaxConcurrency());
+    }
+
+    @Test
+    void rebuildThumbnails_honorsLimitBeforeSubmittingParallelWork() {
+        FileCatalogItem first = new FileCatalogItem("/scan/a.jpg", "a.jpg", "jpg", "/scan", false, 100L, daysAgo(1), "crc1", Instant.now());
+        FileCatalogItem second = new FileCatalogItem("/scan/b.jpg", "b.jpg", "jpg", "/scan", false, 100L, daysAgo(1), "crc2", Instant.now());
+        FileCatalogItem firstUpdated = withThumbnail(first, "/thumbs/a.jpg", ThumbnailStatus.CREATED.name());
+
+        Mockito.when(applicationProperties.getThumbnailsConfig()).thenReturn(new ApplicationProperties.ThumbnailsConfig());
+        Page<FileCatalogItem> page = buildSinglePage(List.of(first, second));
+        Mockito.when(fileCatalogItemRepository.findAll(Mockito.any(org.springframework.data.domain.Pageable.class))).thenReturn(page);
+        Mockito.when(thumbnailService.createOrUpdateThumbnail(first, false)).thenReturn(firstUpdated);
+
+        ThumbnailRebuildSummary summary = serviceImplSpy.rebuildThumbnails(
+                ThumbnailRebuildMode.MISSING_ONLY, Optional.empty(), Optional.empty(), Optional.of(1), Optional.of(4));
+
+        assertEquals(1, summary.processedCount());
+        assertEquals(1, summary.createdCount());
+        Mockito.verify(thumbnailService).createOrUpdateThumbnail(first, false);
+        Mockito.verify(thumbnailService, Mockito.never()).createOrUpdateThumbnail(second, false);
+        Mockito.verify(fileCatalogItemRepository).save(firstUpdated);
+    }
+
+    @Test
+    void rebuildThumbnails_countsMultipleParallelResults() {
+        FileCatalogItem created = new FileCatalogItem("/scan/a.jpg", "a.jpg", "jpg", "/scan", false, 100L, daysAgo(1), "crc1", Instant.now());
+        FileCatalogItem failed = new FileCatalogItem("/scan/b.jpg", "b.jpg", "jpg", "/scan", false, 100L, daysAgo(1), "crc2", Instant.now());
+        FileCatalogItem skipped = new FileCatalogItem("/scan/c.txt", "c.txt", "txt", "/scan", false, 100L, daysAgo(1), "crc3", Instant.now());
+        FileCatalogItem createdUpdated = withThumbnail(created, "/thumbs/a.jpg", ThumbnailStatus.CREATED.name());
+        FileCatalogItem failedUpdated = withThumbnail(failed, null, ThumbnailStatus.FAILED.name());
+        FileCatalogItem skippedUpdated = withThumbnail(skipped, null, ThumbnailStatus.SKIPPED.name());
+
+        Mockito.when(applicationProperties.getThumbnailsConfig()).thenReturn(new ApplicationProperties.ThumbnailsConfig());
+        Page<FileCatalogItem> page = buildSinglePage(List.of(created, failed, skipped));
+        Mockito.when(fileCatalogItemRepository.findAll(Mockito.any(org.springframework.data.domain.Pageable.class))).thenReturn(page);
+        Mockito.when(thumbnailService.createOrUpdateThumbnail(created, true)).thenReturn(createdUpdated);
+        Mockito.when(thumbnailService.createOrUpdateThumbnail(failed, true)).thenReturn(failedUpdated);
+        Mockito.when(thumbnailService.createOrUpdateThumbnail(skipped, true)).thenReturn(skippedUpdated);
+
+        ThumbnailRebuildSummary summary = serviceImplSpy.rebuildThumbnails(
+                ThumbnailRebuildMode.FORCE, Optional.empty(), Optional.empty(), Optional.of(10), Optional.of(3));
+
+        assertEquals(3, summary.processedCount());
+        assertEquals(1, summary.createdCount());
+        assertEquals(1, summary.failedCount());
+        assertEquals(1, summary.skippedCount());
+    }
+
+    @Test
+    void rebuildThumbnails_requestConcurrencyOverridesConfig() throws Exception {
+        RebuildConfig rebuildConfig = new RebuildConfig();
+        rebuildConfig.setMaxConcurrency(1);
+        ApplicationProperties.ThumbnailsConfig thumbnailsConfig = new ApplicationProperties.ThumbnailsConfig();
+        thumbnailsConfig.setRebuild(rebuildConfig);
+        FileCatalogItem first = new FileCatalogItem("/scan/a.jpg", "a.jpg", "jpg", "/scan", false, 100L, daysAgo(1), "crc1", Instant.now());
+        FileCatalogItem second = new FileCatalogItem("/scan/b.jpg", "b.jpg", "jpg", "/scan", false, 100L, daysAgo(1), "crc2", Instant.now());
+        FileCatalogItem firstUpdated = withThumbnail(first, "/thumbs/a.jpg", ThumbnailStatus.CREATED.name());
+        FileCatalogItem secondUpdated = withThumbnail(second, "/thumbs/b.jpg", ThumbnailStatus.CREATED.name());
+        AtomicInteger activeTasks = new AtomicInteger();
+        AtomicInteger maxActiveTasks = new AtomicInteger();
+
+        Mockito.when(applicationProperties.getThumbnailsConfig()).thenReturn(thumbnailsConfig);
+        Page<FileCatalogItem> page = buildSinglePage(List.of(first, second));
+        Mockito.when(fileCatalogItemRepository.findAll(Mockito.any(org.springframework.data.domain.Pageable.class))).thenReturn(page);
+        Mockito.when(thumbnailService.createOrUpdateThumbnail(Mockito.any(FileCatalogItem.class), Mockito.eq(false)))
+                .thenAnswer(invocation -> {
+                    int active = activeTasks.incrementAndGet();
+                    maxActiveTasks.updateAndGet(current -> Math.max(current, active));
+                    try {
+                        TimeUnit.MILLISECONDS.sleep(100);
+                    } finally {
+                        activeTasks.decrementAndGet();
+                    }
+                    FileCatalogItem item = invocation.getArgument(0);
+                    return item.absolutePath().endsWith("a.jpg") ? firstUpdated : secondUpdated;
+                });
+
+        ThumbnailRebuildSummary summary = serviceImplSpy.rebuildThumbnails(
+                ThumbnailRebuildMode.MISSING_ONLY, Optional.empty(), Optional.empty(), Optional.of(10), Optional.of(2));
+
+        assertEquals(2, summary.processedCount());
+        assertEquals(2, summary.createdCount());
+        assertTrue(maxActiveTasks.get() > 1);
     }
 
     @Test
@@ -956,6 +1064,25 @@ public class FileCatalogServiceImplTest {
         Mockito.verify(cloudProvider).delete(item);
         Mockito.verify(thumbnailService).deleteThumbnail(item);
         Mockito.verify(fileCatalogItemRepository).delete(item);
+    }
+
+    private FileCatalogItem withThumbnail(FileCatalogItem item, String thumbnailPath, String thumbnailStatus) {
+        return new FileCatalogItem(
+                item.absolutePath(),
+                item.fileName(),
+                item.fileExtension(),
+                item.parentFolder(),
+                item.isDirectory(),
+                item.fileSize(),
+                item.archiveDate(),
+                item.crc32c(),
+                item.lastModified(),
+                thumbnailPath,
+                "GENERATED",
+                thumbnailPath == null ? null : "image/jpeg",
+                thumbnailPath == null ? null : Instant.now(),
+                thumbnailStatus,
+                null);
     }
 
     @SuppressWarnings("unchecked")

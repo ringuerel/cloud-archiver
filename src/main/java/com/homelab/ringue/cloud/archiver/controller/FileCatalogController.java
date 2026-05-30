@@ -117,8 +117,9 @@ public class FileCatalogController {
             @Parameter(description = "Rebuild mode: MISSING_ONLY, FAILED_ONLY, or FORCE") @RequestParam(value = "mode", defaultValue = "MISSING_ONLY") ThumbnailRebuildMode mode,
             @Parameter(description = "Optional catalog path prefix") @RequestParam(value = "path", required = false) Optional<String> path,
             @Parameter(description = "Optional case-insensitive filename substring") @RequestParam(value = "fileNameContains", required = false) Optional<String> fileNameContains,
-            @Parameter(description = "Maximum number of items to process") @RequestParam(value = "limit", required = false) Optional<Integer> limit) {
-        return fileCatalogService.rebuildThumbnails(mode, path, fileNameContains, limit);
+            @Parameter(description = "Maximum number of items to process") @RequestParam(value = "limit", required = false) Optional<Integer> limit,
+            @Parameter(description = "Maximum number of thumbnail rebuild workers for this request") @RequestParam(value = "concurrency", required = false) Optional<Integer> concurrency) {
+        return fileCatalogService.rebuildThumbnails(mode, path, fileNameContains, limit, concurrency);
     }
 
     @Operation(summary = "Trigger a manual sync process",
