@@ -64,12 +64,15 @@ application:
 
 Cloud Archiver resolves thumbnail storage by longest matching scan-folder prefix. If no location-specific root is configured, it falls back to `application.thumbnails.localRoot`.
 
+Generated thumbnail files are stored under hash-sharded folders such as `/thumbnails/e7/98/<sha256>.jpg`, rather than mirroring the original source path. This keeps cache directories from becoming too large, avoids collisions between common filenames like `IMG_0001.jpg`, avoids path-character issues, and keeps thumbnail lookup stable through the `thumbnailPath` stored in MongoDB. The tradeoff is that thumbnail folders are optimized as an application-managed cache, not as a human-browsable mirror of the source library.
+
 ## Rebuild Existing Thumbnails
 
 Backfill thumbnails for existing catalog entries:
 
 ```bash
 curl -X POST "http://localhost:8080/cloud-archiver/file-catalog/thumbnails/rebuild?mode=MISSING_ONLY&path=/immich/library"
+curl -X POST "http://localhost:8080/cloud-archiver/file-catalog/thumbnails/rebuild?mode=FAILED_ONLY&limit=100&concurrency=4"
 ```
 
 Available modes:
@@ -81,6 +84,8 @@ Available modes:
 | `FORCE` | Regenerate thumbnails even when one already exists |
 
 Rebuild requires the source file to exist locally for generated thumbnails. If the original has already been deleted locally, a generated rebuild cannot create a thumbnail without another source such as Immich.
+
+Thumbnail rebuilds process MongoDB pages sequentially, but can generate thumbnails in parallel within each page. The default worker count is `application.thumbnails.rebuild.maxConcurrency=2`; a rebuild request can override it with `concurrency`. Values are clamped between 1 and 16. Increase cautiously on hosts with enough CPU, memory, and disk throughput.
 
 ## Cleanup
 

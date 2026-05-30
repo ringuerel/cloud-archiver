@@ -38,6 +38,6 @@ public interface FileCatalogService {
      */
     boolean downloadFromCloud(String cloudPath);
 
-    ThumbnailRebuildSummary rebuildThumbnails(ThumbnailRebuildMode mode, Optional<String> path, Optional<String> fileNameContains, Optional<Integer> limit);
+    ThumbnailRebuildSummary rebuildThumbnails(ThumbnailRebuildMode mode, Optional<String> path, Optional<String> fileNameContains, Optional<Integer> limit, Optional<Integer> concurrency);
 
 }

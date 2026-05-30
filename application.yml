@@ -9,16 +9,17 @@ application:
     projectId: gcp-project-id-name
     bucketName: gcp-bucket-name
     credentialsFilePath: /path/to/gcp/creds/file
-  thumbnails:
+  thumbnailsConfig:
     enabled: false # Set true to generate thumbnails for supported image files after first upload
     mode: GENERATE # GENERATE is supported; IMMICH integration is planned
     localRoot: /thumbnails # Default local root for expendable thumbnail files
     maxWidth: 512
     maxHeight: 512
     outputFormat: jpg
-    rebuild:
+    rebuildConfig:
       pageSize: 500
       defaultLimit: 500
+      maxConcurrency: 2 # Maximum parallel thumbnail workers for rebuild requests, clamped between 1 and 16
   scanFolders:
     -
       scanFolder: /path/to/sync
