@@ -42,6 +42,8 @@ import com.homelab.ringue.cloud.archiver.config.ApplicationProperties.ScanLocati
 import com.homelab.ringue.cloud.archiver.domain.FileCatalogItem;
 import com.homelab.ringue.cloud.archiver.domain.PendingDeletionItem;
 import com.homelab.ringue.cloud.archiver.domain.SyncSummaryItem;
+import com.homelab.ringue.cloud.archiver.domain.ThumbnailRebuildMode;
+import com.homelab.ringue.cloud.archiver.domain.ThumbnailRebuildSummary;
 import com.homelab.ringue.cloud.archiver.exception.CloudBackupException;
 import com.homelab.ringue.cloud.archiver.repository.FileCatalogItemRepository;
 import com.homelab.ringue.cloud.archiver.repository.SyncSummaryRepository;
@@ -282,6 +284,12 @@ public class FileCatalogServiceImpl implements FileCatalogService, LocationSyncO
     public boolean startAllLocationSyncs() {
         cloudSyncMetricsService.reset();
         return cloudSyncOrchestrator.startAllLocationSyncs();
+    }
+
+    @Override
+    public ThumbnailRebuildSummary rebuildThumbnails(ThumbnailRebuildMode mode, Optional<String> path,
+            Optional<String> fileNameContains, Optional<Integer> limit, Optional<Integer> concurrency) {
+        throw new UnsupportedOperationException("Thumbnail rebuild flow is not implemented in FileCatalogServiceImpl yet");
     }
 
     @Override
