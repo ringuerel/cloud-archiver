@@ -19,6 +19,10 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
@@ -38,12 +42,14 @@ import com.google.common.io.BaseEncoding;
 import com.google.common.primitives.Ints;
 import com.homelab.ringue.cloud.archiver.cloudprovider.CloudProviderFactory;
 import com.homelab.ringue.cloud.archiver.config.ApplicationProperties;
+import com.homelab.ringue.cloud.archiver.config.ApplicationProperties.RebuildConfig;
 import com.homelab.ringue.cloud.archiver.config.ApplicationProperties.ScanLocationConfig;
 import com.homelab.ringue.cloud.archiver.domain.FileCatalogItem;
 import com.homelab.ringue.cloud.archiver.domain.PendingDeletionItem;
 import com.homelab.ringue.cloud.archiver.domain.SyncSummaryItem;
 import com.homelab.ringue.cloud.archiver.domain.ThumbnailRebuildMode;
 import com.homelab.ringue.cloud.archiver.domain.ThumbnailRebuildSummary;
+import com.homelab.ringue.cloud.archiver.domain.ThumbnailStatus;
 import com.homelab.ringue.cloud.archiver.exception.CloudBackupException;
 import com.homelab.ringue.cloud.archiver.repository.FileCatalogItemRepository;
 import com.homelab.ringue.cloud.archiver.repository.SyncSummaryRepository;
@@ -57,6 +63,7 @@ import com.homelab.ringue.cloud.archiver.service.FileCatalogItemMapper;
 import com.homelab.ringue.cloud.archiver.service.FileCatalogService;
 import com.homelab.ringue.cloud.archiver.service.LocationSyncOperations;
 import com.homelab.ringue.cloud.archiver.service.NotificationService;
+import com.homelab.ringue.cloud.archiver.service.ThumbnailService;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -80,6 +87,7 @@ public class FileCatalogServiceImpl implements FileCatalogService, LocationSyncO
     private final CloudSyncMetricsService cloudSyncMetricsService;
     private final CloudSyncOrchestrator cloudSyncOrchestrator;
     private final FolderBackupService folderBackupService;
+    private final ThumbnailService thumbnailService;
 
     private final AtomicInteger catalogCount = new AtomicInteger(0);
     private final AtomicLong catalogSize = new AtomicLong(0);
@@ -93,7 +101,8 @@ public class FileCatalogServiceImpl implements FileCatalogService, LocationSyncO
             NotificationService notificationService,
             CloudSyncMetricsService cloudSyncMetricsService,
             CloudSyncOrchestrator cloudSyncOrchestrator,
-            FolderBackupService folderBackupService) {
+            FolderBackupService folderBackupService,
+            ThumbnailService thumbnailService) {
         this.fileCatalogItemRepository = fileCatalogItemRepository;
         this.fileCatalogItemMapper = fileCatalogItemMapper;
         this.cloudProviderFactory = cloudProviderFactory;
@@ -103,6 +112,7 @@ public class FileCatalogServiceImpl implements FileCatalogService, LocationSyncO
         this.cloudSyncMetricsService = cloudSyncMetricsService;
         this.cloudSyncOrchestrator = cloudSyncOrchestrator;
         this.folderBackupService = folderBackupService;
+        this.thumbnailService = thumbnailService;
     }
 
     @Override
@@ -289,7 +299,57 @@ public class FileCatalogServiceImpl implements FileCatalogService, LocationSyncO
     @Override
     public ThumbnailRebuildSummary rebuildThumbnails(ThumbnailRebuildMode mode, Optional<String> path,
             Optional<String> fileNameContains, Optional<Integer> limit, Optional<Integer> concurrency) {
-        throw new UnsupportedOperationException("Thumbnail rebuild flow is not implemented in FileCatalogServiceImpl yet");
+        RebuildConfig rebuildConfig = applicationProperties.getThumbnailsConfig().getRebuild();
+        int pageSize = rebuildConfig.getPageSize();
+        int maxItems = limit.orElse(rebuildConfig.getDefaultLimit());
+        int maxConcurrency = concurrency
+                .map(RebuildConfig::clampMaxConcurrency)
+                .orElseGet(rebuildConfig::getMaxConcurrency);
+        String fixedPath = path.map(this::fixLocationPath).orElse(null);
+
+        int processed = 0;
+        int created = 0;
+        int skipped = 0;
+        int failed = 0;
+        Pageable pageRequest = PageRequest.ofSize(pageSize);
+        Page<FileCatalogItem> page;
+        ExecutorService thumbnailRebuildExecutor = Executors.newFixedThreadPool(maxConcurrency);
+
+        try {
+            do {
+                page = queryForThumbnailRebuild(fileNameContains, fixedPath, pageRequest);
+                if (processed >= maxItems) {
+                    return new ThumbnailRebuildSummary(mode, processed, created, skipped, failed);
+                }
+
+                int remainingItems = maxItems - processed;
+                List<FileCatalogItem> itemsToProcess = page.getContent().stream()
+                        .filter(item -> shouldRebuildThumbnail(item, mode))
+                        .limit(remainingItems)
+                        .toList();
+
+                List<ThumbnailRebuildResult> results = rebuildThumbnailBatch(
+                        itemsToProcess,
+                        mode == ThumbnailRebuildMode.FORCE,
+                        thumbnailRebuildExecutor);
+
+                processed += results.size();
+                for (ThumbnailRebuildResult result : results) {
+                    if (ThumbnailStatus.CREATED.name().equals(result.thumbnailStatus())) {
+                        created++;
+                    } else if (ThumbnailStatus.FAILED.name().equals(result.thumbnailStatus())) {
+                        failed++;
+                    } else {
+                        skipped++;
+                    }
+                }
+                pageRequest = page.nextPageable();
+            } while (page.hasNext());
+        } finally {
+            thumbnailRebuildExecutor.shutdown();
+        }
+
+        return new ThumbnailRebuildSummary(mode, processed, created, skipped, failed);
     }
 
     @Override
@@ -314,6 +374,60 @@ public class FileCatalogServiceImpl implements FileCatalogService, LocationSyncO
                 summaryItem.deleteSize(),
                 locationConfig);
     }
+
+    private Page<FileCatalogItem> queryForThumbnailRebuild(Optional<String> fileNameContains, String fixedPath,
+            Pageable pageRequest) {
+        if (fileNameContains.isPresent() && fixedPath != null) {
+            return fileCatalogItemRepository.findByFileNameContainsIgnoreCaseAndParentFolderStartsWith(
+                    fileNameContains.get(), fixedPath, pageRequest);
+        }
+        if (fileNameContains.isPresent()) {
+            return fileCatalogItemRepository.findByFileNameContainsIgnoreCase(fileNameContains.get(), pageRequest);
+        }
+        if (fixedPath != null) {
+            return fileCatalogItemRepository.findByParentFolderStartsWith(fixedPath, pageRequest);
+        }
+        return fileCatalogItemRepository.findAll(pageRequest);
+    }
+
+    private boolean shouldRebuildThumbnail(FileCatalogItem item, ThumbnailRebuildMode mode) {
+        return switch (mode) {
+            case FORCE -> true;
+            case FAILED_ONLY -> ThumbnailStatus.FAILED.name().equals(item.thumbnailStatus());
+            case MISSING_ONLY -> (item.thumbnailPath() == null || item.thumbnailPath().isBlank())
+                    && !ThumbnailStatus.SKIPPED.name().equals(item.thumbnailStatus());
+        };
+    }
+
+    private List<ThumbnailRebuildResult> rebuildThumbnailBatch(List<FileCatalogItem> itemsToProcess, boolean force,
+            ExecutorService thumbnailRebuildExecutor) {
+        List<Callable<ThumbnailRebuildResult>> rebuildTasks = itemsToProcess.stream()
+                .<Callable<ThumbnailRebuildResult>>map(item -> () -> {
+                    FileCatalogItem updatedItem = thumbnailService.createOrUpdateThumbnail(item, force);
+                    fileCatalogItemRepository.save(updatedItem);
+                    return new ThumbnailRebuildResult(updatedItem.thumbnailStatus());
+                })
+                .toList();
+        try {
+            return thumbnailRebuildExecutor.invokeAll(rebuildTasks).stream()
+                    .map(future -> {
+                        try {
+                            return future.get();
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            throw new IllegalStateException("Interrupted while rebuilding thumbnails", e);
+                        } catch (ExecutionException e) {
+                            throw new IllegalStateException("Failed rebuilding thumbnails", e.getCause());
+                        }
+                    })
+                    .toList();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while rebuilding thumbnails", e);
+        }
+    }
+
+    private record ThumbnailRebuildResult(String thumbnailStatus) {}
 
     private void startCloudBackup(ScanLocationConfig locationConfig) throws CloudBackupException {
         CloudSyncContext.updatePhase(PHASE_BACKUP);

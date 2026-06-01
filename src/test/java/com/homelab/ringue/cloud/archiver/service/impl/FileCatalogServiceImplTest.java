@@ -37,6 +37,7 @@ import com.homelab.ringue.cloud.archiver.service.FileCatalogItemMapper;
 import com.homelab.ringue.cloud.archiver.service.FolderBackupService;
 import com.homelab.ringue.cloud.archiver.service.NotificationService;
 import com.homelab.ringue.cloud.archiver.service.SyncLockManager;
+import com.homelab.ringue.cloud.archiver.service.ThumbnailService;
 
 class FileCatalogServiceImplTest {
 
@@ -70,6 +71,8 @@ class FileCatalogServiceImplTest {
     private CloudSyncOrchestrator cloudSyncOrchestrator;
     @Mock
     private FolderBackupService folderBackupService;
+    @Mock
+    private ThumbnailService thumbnailService;
 
     @BeforeEach
     void setupTests() throws Exception {
@@ -84,7 +87,8 @@ class FileCatalogServiceImplTest {
                 notificationService,
                 cloudSyncMetricsService,
                 cloudSyncOrchestrator,
-                folderBackupService));
+                folderBackupService,
+                thumbnailService));
 
         Mockito.when(scanLocationConfigMock.getScanFolder()).thenReturn(TEST_SCAN_FOLDER);
         Mockito.when(applicationProperties.getCloudProviderConfig()).thenReturn(cloudProviderConfig);
