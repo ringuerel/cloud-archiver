@@ -6,6 +6,8 @@ import java.util.Optional;
 import com.homelab.ringue.cloud.archiver.config.ApplicationProperties.ScanLocationConfig;
 import com.homelab.ringue.cloud.archiver.domain.FileCatalogItem;
 import com.homelab.ringue.cloud.archiver.domain.PendingDeletionItem;
+import com.homelab.ringue.cloud.archiver.domain.ThumbnailRebuildMode;
+import com.homelab.ringue.cloud.archiver.domain.ThumbnailRebuildSummary;
 import com.homelab.ringue.cloud.archiver.exception.CloudBackupException;
 
 public interface FileCatalogService {
@@ -35,5 +37,7 @@ public interface FileCatalogService {
      * @return true if download was successful, false otherwise
      */
     boolean downloadFromCloud(String cloudPath);
+
+    ThumbnailRebuildSummary rebuildThumbnails(ThumbnailRebuildMode mode, Optional<String> path, Optional<String> fileNameContains, Optional<Integer> limit, Optional<Integer> concurrency);
 
 }

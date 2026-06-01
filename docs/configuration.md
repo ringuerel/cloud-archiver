@@ -89,6 +89,42 @@ SCAN_LOCATION — uploaded IMPORTED_COUNT (IMPORTED_SIZE), deleted DELETED_COUNT
 
 ---
 
+## Thumbnails
+
+Thumbnail generation is optional. When enabled, supported image files get a generated thumbnail after the original file uploads successfully. Thumbnail files are stored on local disk as expendable cache files, and the catalog item stores the local thumbnail path and metadata. See [Thumbnails](operations/thumbnails.md) for rebuild behavior and the video thumbnail plan.
+
+| Property | Env var | Required | Default | Description |
+|----------|---------|----------|---------|-------------|
+| `application.thumbnails.enabled` | `APPLICATION_THUMBNAILSCONFIG_ENABLED` | no | `false` | Enables thumbnail generation and rebuilds |
+| `application.thumbnails.mode` | `APPLICATION_THUMBNAILSCONFIG_MODE` | no | `GENERATE` | Thumbnail provider mode. `GENERATE` is currently supported; Immich integration is planned. |
+| `application.thumbnails.localRoot` | `APPLICATION_THUMBNAILSCONFIG_LOCALROOT` | no | `/thumbnails` | Default local root for generated thumbnail files |
+| `application.thumbnails.maxWidth` | `APPLICATION_THUMBNAILSCONFIG_MAXWIDTH` | no | `512` | Maximum generated thumbnail width |
+| `application.thumbnails.maxHeight` | `APPLICATION_THUMBNAILSCONFIG_MAXHEIGHT` | no | `512` | Maximum generated thumbnail height |
+| `application.thumbnails.outputFormat` | `APPLICATION_THUMBNAILSCONFIG_OUTPUTFORMAT` | no | `jpg` | Generated image format |
+| `application.thumbnails.rebuild.pageSize` | `APPLICATION_THUMBNAILSCONFIG_REBUILDCONFIG_PAGESIZE` | no | `500` | MongoDB page size for thumbnail rebuild scans |
+| `application.thumbnails.rebuild.defaultLimit` | `APPLICATION_THUMBNAILSCONFIG_REBUILDCONFIG_DEFAULTLIMIT` | no | `500` | Default maximum entries processed by one rebuild request |
+| `application.thumbnails.rebuild.maxConcurrency` | `APPLICATION_THUMBNAILSCONFIG_REBUILDCONFIG_MAXCONCURRENCY` | no | `2` | Maximum parallel thumbnail workers for rebuild requests, clamped between 1 and 16 |
+
+Each scan folder can override the thumbnail root:
+
+| Property | Env var (index N) | Required | Default | Description |
+|----------|-------------------|----------|---------|-------------|
+| `scanFolders[N].thumbnailRoot` | `APPLICATION_SCANFOLDERS_N_THUMBNAILROOT` | no | `application.thumbnails.localRoot` | Local thumbnail root for media from this scan folder |
+
+Catalog entries keep `thumbnailPath` null when no thumbnail exists, which makes missing-thumbnail queries straightforward:
+
+```javascript
+db.file_catalog.find({
+  $or: [
+    { thumbnailPath: { $exists: false } },
+    { thumbnailPath: null },
+    { thumbnailPath: "" }
+  ]
+})
+```
+
+---
+
 ## Scheduler
 
 | Property | Env var | Default | Description |

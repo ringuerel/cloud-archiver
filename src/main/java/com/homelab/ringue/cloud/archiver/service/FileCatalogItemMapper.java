@@ -14,4 +14,14 @@ public interface FileCatalogItemMapper {
 
     FileCatalogItem mapFromFileCatalogItemUpdateLastModified(FileCatalogItem fileCatalogItem, Instant lastModified);
 
+    FileCatalogItem mapFromFileCatalogItemUpdateThumbnail(
+        FileCatalogItem fileCatalogItem,
+        String thumbnailPath,
+        String thumbnailProvider,
+        String thumbnailContentType,
+        Instant thumbnailCreatedAt,
+        String thumbnailStatus,
+        String thumbnailError
+    );
+
 }
