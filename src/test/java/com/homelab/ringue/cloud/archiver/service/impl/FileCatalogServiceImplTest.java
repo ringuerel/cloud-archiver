@@ -1,7 +1,6 @@
 package com.homelab.ringue.cloud.archiver.service.impl;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mockStatic;
@@ -33,7 +32,6 @@ import com.homelab.ringue.cloud.archiver.service.CloudSyncContext;
 import com.homelab.ringue.cloud.archiver.service.CloudSyncMetrics;
 import com.homelab.ringue.cloud.archiver.service.CloudSyncMetricsService;
 import com.homelab.ringue.cloud.archiver.service.CloudSyncOrchestrator;
-import com.homelab.ringue.cloud.archiver.service.FileCatalogItemMapper;
 import com.homelab.ringue.cloud.archiver.service.FolderBackupService;
 import com.homelab.ringue.cloud.archiver.service.NotificationService;
 import com.homelab.ringue.cloud.archiver.service.SyncLockManager;
@@ -55,8 +53,6 @@ class FileCatalogServiceImplTest {
     private ScanLocationConfig scanLocationConfigMock = new ScanLocationConfig();
     @Mock
     private CloudProviderConfig cloudProviderConfig;
-    @Mock
-    private FileCatalogItemMapper fileCatalogItemMapper;
     @Mock
     private CloudProviderFactory cloudProviderFactory;
     @Mock
@@ -80,7 +76,6 @@ class FileCatalogServiceImplTest {
 
         serviceImplSpy = Mockito.spy(new FileCatalogServiceImpl(
                 fileCatalogItemRepository,
-                fileCatalogItemMapper,
                 cloudProviderFactory,
                 applicationProperties,
                 summaryRepository,

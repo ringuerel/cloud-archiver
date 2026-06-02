@@ -38,6 +38,7 @@ import com.homelab.ringue.cloud.archiver.service.CloudSyncContext;
 import com.homelab.ringue.cloud.archiver.service.FileCatalogItemMapper;
 import com.homelab.ringue.cloud.archiver.service.FolderBackupService;
 import com.homelab.ringue.cloud.archiver.service.NotificationService;
+import com.homelab.ringue.cloud.archiver.service.ThumbnailService;
 
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
@@ -57,6 +58,7 @@ public class FolderBackupServiceImpl implements FolderBackupService {
     private final CloudProviderFactory cloudProviderFactory;
     private final ApplicationProperties applicationProperties;
     private final NotificationService notificationService;
+    private final ThumbnailService thumbnailService;
     private final Counter filesUploadedCounter;
     private final Timer uploadTimer;
     private final DistributionSummary gcpUploadBytesSummary;
@@ -67,6 +69,7 @@ public class FolderBackupServiceImpl implements FolderBackupService {
             CloudProviderFactory cloudProviderFactory,
             ApplicationProperties applicationProperties,
             NotificationService notificationService,
+            ThumbnailService thumbnailService,
             Counter filesUploadedCounter,
             Timer uploadTimer,
             DistributionSummary gcpUploadBytesSummary) {
@@ -75,6 +78,7 @@ public class FolderBackupServiceImpl implements FolderBackupService {
         this.cloudProviderFactory = cloudProviderFactory;
         this.applicationProperties = applicationProperties;
         this.notificationService = notificationService;
+        this.thumbnailService = thumbnailService;
         this.filesUploadedCounter = filesUploadedCounter;
         this.uploadTimer = uploadTimer;
         this.gcpUploadBytesSummary = gcpUploadBytesSummary;
@@ -211,7 +215,8 @@ public class FolderBackupServiceImpl implements FolderBackupService {
 
                 log.info("[GCP] Uploaded {} ({} bytes) in {} ms",
                         archivableItem.absolutePath(), archivableItem.fileSize(), durationMs);
-                fileCatalogItemRepository.save(archivableItem);
+                FileCatalogItem itemWithThumbnail = thumbnailService.createOrUpdateThumbnail(archivableItem, false);
+                fileCatalogItemRepository.save(itemWithThumbnail);
                 context.uploadedCount().incrementAndGet();
                 context.uploadedSize().addAndGet(archivableItem.fileSize());
                 filesUploadedCounter.increment();

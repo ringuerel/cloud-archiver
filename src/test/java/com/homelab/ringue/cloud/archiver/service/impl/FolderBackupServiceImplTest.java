@@ -4,7 +4,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mockStatic;
 
 import java.io.IOException;
@@ -40,6 +39,7 @@ import com.homelab.ringue.cloud.archiver.service.BackupPipelineContext;
 import com.homelab.ringue.cloud.archiver.service.CloudSyncContext;
 import com.homelab.ringue.cloud.archiver.service.FileCatalogItemMapper;
 import com.homelab.ringue.cloud.archiver.service.NotificationService;
+import com.homelab.ringue.cloud.archiver.service.ThumbnailService;
 
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
@@ -72,6 +72,8 @@ class FolderBackupServiceImplTest {
     private CloudProviderConfig cloudProviderConfig;
     @Mock
     private CloudProvider cloudProvider;
+    @Mock
+    private ThumbnailService thumbnailService;
     @Spy
     private ScanLocationConfig scanLocationConfig = new ScanLocationConfig();
 
@@ -84,6 +86,7 @@ class FolderBackupServiceImplTest {
                 cloudProviderFactory,
                 applicationProperties,
                 notificationService,
+                thumbnailService,
                 filesUploadedCounter,
                 uploadTimer,
                 gcpUploadBytesSummary));
@@ -222,6 +225,7 @@ class FolderBackupServiceImplTest {
         Mockito.doReturn(upload).when(service).getFileToProcessIfAny(context.catalogCache(), upload);
         Mockito.doCallRealMethod().when(service).performCloudBackup(scanLocationConfig, context, upload);
         Mockito.when(fileCatalogItemMapper.mapFromFileCatalogItemAddArchiveDate(upload)).thenReturn(upload);
+        Mockito.when(thumbnailService.createOrUpdateThumbnail(upload, false)).thenReturn(upload);
         MDC.put("requestId", "req-789");
 
         service.processFileStreamForBackup(scanLocationConfig, context, Stream.of(Path.of("upload")));
@@ -244,11 +248,13 @@ class FolderBackupServiceImplTest {
         BackupPipelineContext context = new BackupPipelineContext(new HashMap<>(),
                 new java.util.concurrent.atomic.AtomicInteger(), new java.util.concurrent.atomic.AtomicLong());
         Mockito.when(fileCatalogItemMapper.mapFromFileCatalogItemAddArchiveDate(fileCatalogItem)).thenReturn(archived);
+        Mockito.when(thumbnailService.createOrUpdateThumbnail(archived, false)).thenReturn(archived);
         MDC.put("requestId", "req-123");
 
         service.performCloudBackup(scanLocationConfig, context, fileCatalogItem);
 
         Mockito.verify(cloudProvider).upload(archived);
+        Mockito.verify(thumbnailService).createOrUpdateThumbnail(archived, false);
         Mockito.verify(fileCatalogItemRepository).save(archived);
         Mockito.verify(gcpUploadBytesSummary).record(archived.fileSize());
         Mockito.verify(filesUploadedCounter).increment();
@@ -292,6 +298,7 @@ class FolderBackupServiceImplTest {
         BackupPipelineContext context = new BackupPipelineContext(new HashMap<>(),
                 new java.util.concurrent.atomic.AtomicInteger(), new java.util.concurrent.atomic.AtomicLong());
         Mockito.when(fileCatalogItemMapper.mapFromFileCatalogItemAddArchiveDate(fileCatalogItem)).thenReturn(archived);
+        Mockito.when(thumbnailService.createOrUpdateThumbnail(archived, false)).thenReturn(archived);
         MDC.put("requestId", "req-789");
 
         service.performCloudBackup(scanLocationConfig, context, fileCatalogItem);
