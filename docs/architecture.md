@@ -41,7 +41,8 @@ graph TB
 ```mermaid
 graph LR
     subgraph API["REST Layer"]
-        CTRL["FileCatalogController\n/cloud-archiver/file-catalog"]
+        CTRL["FileCatalogController\n/file-catalog"]
+        TCTRL["ThumbnailController\n/thumbnails"]
     end
 
     subgraph Scheduling["Scheduling"]
@@ -50,6 +51,12 @@ graph LR
 
     subgraph Service["Service Layer"]
         FCS["FileCatalogService\n(FileCatalogServiceImpl)"]
+        SYNC["SyncFacadeService\n(SyncFacadeServiceImpl)"]
+        ORCH["CloudSyncOrchestrator\n(CloudSyncOrchestratorImpl)"]
+        FBS["FolderBackupService\n(FolderBackupServiceImpl)"]
+        LSO["LocationSyncOperations\n(FileCatalogServiceImpl)"]
+        TRS["ThumbnailRebuildService\n(ThumbnailRebuildServiceImpl)"]
+        TS["ThumbnailService\n(GeneratedThumbnailService)"]
         METRICS["CloudSyncMetricsService"]
         CTX["CloudSyncContext\n(MDC helper)"]
         NS["NotificationService\n(WebhookNotificationService)"]
@@ -69,14 +76,27 @@ graph LR
     end
 
     CTRL --> FCS
-    TT --> FCS
-    FCS --> SLM
-    FCS --> MAPPER
+    CTRL --> SYNC
+    TCTRL --> TRS
+    TT --> SYNC
+    SYNC --> ORCH
+    SYNC --> METRICS
+    ORCH --> LSO
+    LSO --> FBS
+    LSO --> CPF
+    LSO --> REPO
+    LSO --> SREPO
+    LSO --> TS
+    FBS --> MAPPER
+    FBS --> CPF
+    FBS --> REPO
+    FBS --> TS
+    TRS --> REPO
+    TRS --> TS
     FCS --> CPF
     FCS --> REPO
     FCS --> SREPO
     FCS --> METRICS
-    FCS --> CTX
     FCS --> NS
     NS --> CTX
     METRICS --> REPO
@@ -118,7 +138,8 @@ com.homelab.ringue.cloud.archiver
 │   ├── ApplicationProperties.java      @ConfigurationProperties binding
 │   └── SwaggerConfig.java              OpenAPI / Swagger UI setup
 ├── controller/
-│   ├── FileCatalogController.java      REST endpoints
+│   ├── FileCatalogController.java      Catalog queries, download, sync trigger
+│   ├── ThumbnailController.java        Thumbnail rebuild endpoint
 │   └── FileCatalogResponseEntityExceptionHandler.java  Global error handler
 ├── cloudprovider/
 │   ├── CloudProvider.java              Interface: upload / delete / download / getCheckSum
@@ -129,7 +150,11 @@ com.homelab.ringue.cloud.archiver
 │       └── NoProvider.java             Dry-run / test implementation
 ├── domain/
 │   ├── FileCatalogItem.java            MongoDB document (file_catalog)
-│   └── SyncSummaryItem.java            MongoDB document (sync_summary)
+│   ├── PendingDeletionItem.java        DTO: catalog item + days-until-deletion
+│   ├── SyncSummaryItem.java            MongoDB document (sync_summary)
+│   ├── ThumbnailRebuildMode.java       Enum: MISSING_ONLY | FAILED_ONLY | FORCE
+│   ├── ThumbnailRebuildSummary.java    DTO: rebuild result counts
+│   └── ThumbnailStatus.java            Enum: CREATED | SKIPPED | FAILED
 ├── exception/
 │   ├── CloudBackupException.java       Checked — backup failure
 │   └── CloudDeleteFailedException.java Runtime — cloud delete failure
@@ -137,19 +162,31 @@ com.homelab.ringue.cloud.archiver
 │   ├── FileCatalogItemRepository.java  MongoRepository for file catalog
 │   └── SyncSummaryRepository.java      MongoRepository for daily summaries
 └── service/
-    ├── CloudSyncContext.java           MDC helper for sync, cleanup, summary, and download phases
+    ├── BackupPipelineContext.java      Record: upload counters + catalog cache
+    ├── CloudSyncContext.java           MDC helper for sync phases
     ├── CloudSyncMetrics.java           Meter bundle used during sync execution
-    ├── CloudSyncMetricsService.java    Shared metric registration/reset ownership
-    ├── FileCatalogService.java         Service interface
+    ├── CloudSyncMetricsService.java    Metric registration/reset ownership
+    ├── CloudSyncOrchestrator.java      Orchestrates per-location sync execution
     ├── FileCatalogItemMapper.java      Mapper interface
+    ├── FileCatalogService.java         Catalog query and download interface
+    ├── FolderBackupService.java        Backup pipeline interface
+    ├── LocationSyncOperations.java     executeBackup / executeCleanup / persistSummary
     ├── NotificationService.java        Notification interface
+    ├── SyncFacadeService.java          Thin sync trigger: delegates to CloudSyncOrchestrator
     ├── SyncLockManager.java            Concurrency lock
-    ├── TimedTask.java                  Scheduled trigger
+    ├── ThumbnailRebuildService.java    Rebuild orchestration interface
+    ├── ThumbnailService.java           Thumbnail create / delete interface
+    ├── TimedTask.java                  Scheduled trigger (uses SyncFacadeService)
     ├── impl/
-    │   ├── CloudSyncMetricsServiceImpl.java  Metric registry lifecycle manager
-    │   ├── FileCatalogServiceImpl.java Core business logic
-    │   ├── FileCatalogItemMapperImpl.java  Path → domain object mapping
-    │   └── WebhookNotificationService.java Discord webhook sender
+    │   ├── CloudSyncMetricsServiceImpl.java    Metric registry lifecycle manager
+    │   ├── CloudSyncOrchestratorImpl.java      Per-location sync orchestrator
+    │   ├── FileCatalogItemMapperImpl.java      Path → domain object mapping
+    │   ├── FileCatalogServiceImpl.java         Catalog queries, download, LocationSyncOperations
+    │   ├── FolderBackupServiceImpl.java        Scan/import pipeline + thumbnail wiring
+    │   ├── GeneratedThumbnailService.java      Java2D image thumbnail generation
+    │   ├── SyncFacadeServiceImpl.java          sync trigger facade
+    │   ├── ThumbnailRebuildServiceImpl.java    Paged rebuild orchestration
+    │   └── WebhookNotificationService.java     Discord webhook sender
     └── notification/
         ├── WebhookPayload.java         Webhook request body
         ├── Embed.java                  Discord embed object
@@ -163,8 +200,11 @@ com.homelab.ringue.cloud.archiver
 | Pattern | Where used | Purpose |
 |---------|-----------|---------|
 | **Strategy** | `CloudProvider` / `GCPStorageProvider` / `NoProvider` | Swap cloud backends without changing business logic |
+| **Strategy** | `ThumbnailService` / `GeneratedThumbnailService` | Swap thumbnail generation strategy; future Immich/video providers slot in here |
 | **Factory** | `CloudProviderFactory` | Resolve the correct `CloudProvider` by `CloudProviders` enum at runtime |
+| **Facade** | `SyncFacadeService` / `SyncFacadeServiceImpl` | Thin sync-trigger facade that breaks the orchestrator↔service circular dependency |
 | **Repository** | `FileCatalogItemRepository`, `SyncSummaryRepository` | Decouple data access from service logic |
 | **Observer / async** | `WebhookNotificationService` (`@Async`) | Notifications fire and forget — don't block the sync thread |
 | **Context object** | `CloudSyncContext` | Carry stable MDC fields across sync, cleanup, summary, and async notification boundaries |
-| **Prototype scope** | `FileCatalogServiceImpl`, `FileCatalogController` | Fresh instance per injection point; mutable counters stay per-run while shared metric ownership moves out of the prototype bean |
+| **Prototype scope** | `FileCatalogServiceImpl`, `FolderBackupServiceImpl`, `FileCatalogController` | Fresh instance per injection point; mutable counters stay per-run |
+| **Separation of concerns** | `CloudSyncOrchestratorImpl` vs `FolderBackupServiceImpl` vs `ThumbnailRebuildServiceImpl` | Each class owns exactly one axis of orchestration: location sync, file backup pipeline, or thumbnail rebuild |

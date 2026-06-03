@@ -40,7 +40,7 @@ flowchart TD
 
 For each configured scan folder, the service walks the filesystem and compares every file against the MongoDB catalog.
 
-After the backup-pipeline extraction, `FileCatalogServiceImpl` remains the location-sync orchestrator while `FolderBackupServiceImpl` owns the scan/import path: cache hydration, filtering, CRC32C decisions, upload execution, and metadata-only savebacks. The extracted service also wraps per-file upload decisions in MDC fields (`scanFolder`, `filePath`, `backupDecisionId`) so structured logs survive the parallel stream fan-out without leaking context between files.
+`FolderBackupServiceImpl` owns the scan/import pipeline: cache hydration, filtering, CRC32C decisions, upload execution, thumbnail creation, and metadata-only savebacks. After a successful upload, `ThumbnailService.createOrUpdateThumbnail()` is called immediately — the MongoDB save includes the thumbnail metadata in the same write. Thumbnail failures are non-blocking: they are recorded as `thumbnailStatus=FAILED` on the catalog item, and the upload is still counted as successful. Per-file upload decisions are wrapped in MDC fields (`scanFolder`, `filePath`, `backupDecisionId`) so structured logs survive the parallel stream fan-out without leaking context between files.
 
 ```mermaid
 flowchart TD
@@ -56,7 +56,8 @@ flowchart TD
     SAME_CRC{"CRC32C\nunchanged?"}
     UPDATE_MTIME["Update lastModified\nin cache only"]
     UPLOAD["cloudProvider.upload()\n→ GCP Storage"]
-    SAVE_CATALOG["fileCatalogItemRepository.save()"]
+    THUMBNAIL["thumbnailService.createOrUpdateThumbnail()\n(non-blocking; records CREATED/SKIPPED/FAILED)"]
+    SAVE_CATALOG["fileCatalogItemRepository.save()\n(includes thumbnail metadata)"]
     SAVE_REMAINING["Save remaining cache entries\n(metadata-only updates)"]
     END(["Backup complete"])
 
@@ -76,7 +77,8 @@ flowchart TD
     SAME_CRC -- Yes --> UPDATE_MTIME
     UPDATE_MTIME --> WALK
     SAME_CRC -- No --> UPLOAD
-    UPLOAD --> SAVE_CATALOG
+    UPLOAD --> THUMBNAIL
+    THUMBNAIL --> SAVE_CATALOG
     SAVE_CATALOG --> WALK
     WALK -- Stream exhausted --> SAVE_REMAINING
     SAVE_REMAINING --> END
@@ -113,7 +115,8 @@ flowchart TD
     EXISTS -- Yes --> SKIP
     EXISTS -- No --> DELETE_CLOUD
     DELETE_CLOUD --> DELETE_CATALOG
-    DELETE_CATALOG --> MORE
+    DELETE_CATALOG --> DELETE_THUMB["thumbnailService.deleteThumbnail()\n(deletes local thumbnail file)"]
+    DELETE_THUMB --> MORE
     SKIP --> MORE
     MORE -- Yes --> PAGE
     MORE -- No --> END
@@ -143,75 +146,74 @@ timeline
 
 ## Detailed Sequence Diagram
 
-This captures the full participant interaction across both backup and cleanup phases, matching the original PlantUML workflow diagram.
+This captures the full participant interaction across both backup and cleanup phases.
 
 ```mermaid
 sequenceDiagram
     participant Scheduler as TimedTask (@Scheduled)
-    participant Service as FileCatalogServiceImpl
+    participant Facade as SyncFacadeService
+    participant Orchestrator as CloudSyncOrchestratorImpl
     participant Lock as SyncLockManager
-    participant FS as File System
+    participant Backup as FolderBackupServiceImpl
+    participant Thumbnail as ThumbnailService
     participant Cloud as CloudProvider
     participant DB as FileCatalogItemRepository
     participant SummaryDB as SyncSummaryRepository
     participant Notifier as NotificationService (async)
 
-    Scheduler->>Lock: acquireLock()
-    Lock-->>Scheduler: true
+    Scheduler->>Facade: startAllLocationSyncs()
+    Facade->>Orchestrator: startAllLocationSyncs()
+    Orchestrator->>Lock: acquireLock()
+    Lock-->>Orchestrator: true
 
     loop For each ScanLocationConfig
-        Scheduler->>Service: performLocationSync(config)
-        Service->>Notifier: notifyInfoMessage("Started backup")
+        Orchestrator->>Notifier: notifyInfoMessage("Started backup")
 
-        Note over Service,DB: ── Backup Phase ──
-        Service->>DB: findByParentFolderStartsWith() [paginated]
-        DB-->>Service: existing catalog items → ConcurrentHashMap
+        Note over Backup,DB: ── Backup Phase ──
+        Backup->>DB: findByParentFolderStartsWith() [paginated → ConcurrentHashMap]
 
-        Service->>FS: Files.walk(scanFolder).parallel()
-        FS-->>Service: Stream of Paths
+        Backup->>Backup: Files.walk(scanFolder).parallel()
 
         loop For each file in stream
-            Service->>Service: applyFilteringRules() — hidden / patterns
-            Service->>Service: getFileToProcessIfAny()
+            Backup->>Backup: applyFilteringRules()
+            Backup->>Backup: getFileToProcessIfAny()
             alt mtime unchanged
-                Service->>Service: skip (no CRC needed)
+                Backup->>Backup: skip
             else mtime changed or new file
-                Service->>FS: getCrC32C(file)
-                FS-->>Service: CRC32C checksum
+                Backup->>Backup: getCrC32C(file)
                 alt CRC unchanged
-                    Service->>DB: update lastModified only
+                    Backup->>DB: update lastModified only
                 else CRC changed or new
-                    Service->>Cloud: upload(fileCatalogItem)
-                    Cloud-->>Service: success
-                    Service->>DB: save(fileCatalogItem with archiveDate)
+                    Backup->>Cloud: upload(fileCatalogItem)
+                    Cloud-->>Backup: success
+                    Backup->>Thumbnail: createOrUpdateThumbnail(item, false)
+                    Thumbnail-->>Backup: item with thumbnail metadata
+                    Backup->>DB: save(itemWithThumbnail)
                 end
             end
         end
-        Service->>DB: save remaining cache entries (metadata updates)
+        Backup->>DB: save remaining cache entries (metadata-only)
 
         opt cleanRemovedFromCloud = true
-            Note over Service,DB: ── Cleanup Phase ──
-            Service->>Notifier: notifyInfoMessage("Started cleanup")
+            Note over Orchestrator,DB: ── Cleanup Phase ──
+            Orchestrator->>Notifier: notifyInfoMessage("Started cleanup")
             loop For each page of catalog entries
-                Service->>DB: findByParentFolderStartsWith() [paginated]
-                DB-->>Service: catalog entries
-                loop For each entry (parallel)
-                    Service->>FS: Files.notExists(absolutePath)?
-                    alt File missing from disk AND within deletion window
-                        Service->>Cloud: delete(fileCatalogItem)
-                        Cloud-->>Service: success
-                        Service->>DB: delete(fileCatalogItem)
-                    end
+                Orchestrator->>DB: findByParentFolderStartsWith() [paginated]
+                loop For each entry missing from disk AND within deletion window
+                    Orchestrator->>Cloud: delete(fileCatalogItem)
+                    Cloud-->>Orchestrator: success
+                    Orchestrator->>DB: delete(fileCatalogItem)
+                    Orchestrator->>Thumbnail: deleteThumbnail(fileCatalogItem)
                 end
             end
         end
 
-        Service->>SummaryDB: save(SyncSummaryItem) [accumulates daily totals]
-        Service->>Notifier: notifySummary(summary, config)
-        Notifier-->>Service: (async, non-blocking)
+        Orchestrator->>SummaryDB: save(SyncSummaryItem)
+        Orchestrator->>Notifier: notifySummary(summary, config)
+        Notifier-->>Orchestrator: (async, non-blocking)
     end
 
-    Scheduler->>Lock: releaseLock()
+    Orchestrator->>Lock: releaseLock()
 ```
 
 ---
@@ -222,18 +224,22 @@ sequenceDiagram
 sequenceDiagram
     participant Cron as Cron / REST
     participant SLM as SyncLockManager
-    participant SVC as FileCatalogServiceImpl
+    participant Facade as SyncFacadeService
+    participant Orch as CloudSyncOrchestratorImpl
 
-    Cron->>SLM: acquireLock(timeoutSeconds)
+    Cron->>Facade: startAllLocationSyncs()
+    Facade->>Orch: startAllLocationSyncs()
+    Orch->>SLM: acquireLock(timeoutSeconds)
     alt Lock free
-        SLM-->>Cron: true
-        Cron->>SVC: startAllLocationSyncs()
-        SVC-->>Cron: done
-        Cron->>SLM: releaseLock()
+        SLM-->>Orch: true
+        Orch->>Orch: run sync
+        Orch->>SLM: releaseLock()
+        Facade-->>Cron: true
     else Lock held and not stale
-        SLM-->>Cron: false (skip)
+        SLM-->>Orch: false (skip)
+        Facade-->>Cron: false
     else Lock held but stale (> timeout)
         SLM->>SLM: force releaseLock()
-        SLM-->>Cron: true (proceeds)
+        SLM-->>Orch: true (proceeds)
     end
 ```
