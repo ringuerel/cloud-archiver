@@ -31,10 +31,8 @@ import com.homelab.ringue.cloud.archiver.service.BackupPipelineContext;
 import com.homelab.ringue.cloud.archiver.service.CloudSyncContext;
 import com.homelab.ringue.cloud.archiver.service.CloudSyncMetrics;
 import com.homelab.ringue.cloud.archiver.service.CloudSyncMetricsService;
-import com.homelab.ringue.cloud.archiver.service.CloudSyncOrchestrator;
 import com.homelab.ringue.cloud.archiver.service.FolderBackupService;
 import com.homelab.ringue.cloud.archiver.service.NotificationService;
-import com.homelab.ringue.cloud.archiver.service.SyncLockManager;
 import com.homelab.ringue.cloud.archiver.service.ThumbnailService;
 
 class FileCatalogServiceImplTest {
@@ -58,13 +56,9 @@ class FileCatalogServiceImplTest {
     @Mock
     private NotificationService notificationService;
     @Mock
-    private SyncLockManager syncLockManager;
-    @Mock
     private CloudSyncMetricsService cloudSyncMetricsService;
     @Mock
     private CloudSyncMetrics cloudSyncMetrics;
-    @Mock
-    private CloudSyncOrchestrator cloudSyncOrchestrator;
     @Mock
     private FolderBackupService folderBackupService;
     @Mock
@@ -81,7 +75,6 @@ class FileCatalogServiceImplTest {
                 summaryRepository,
                 notificationService,
                 cloudSyncMetricsService,
-                cloudSyncOrchestrator,
                 folderBackupService,
                 thumbnailService));
 
@@ -89,7 +82,6 @@ class FileCatalogServiceImplTest {
         Mockito.when(applicationProperties.getCloudProviderConfig()).thenReturn(cloudProviderConfig);
         Mockito.when(cloudProviderConfig.getType()).thenReturn(CloudProviders.NO_PROVIDER);
         Mockito.when(cloudSyncMetricsService.current()).thenReturn(cloudSyncMetrics);
-        Mockito.when(cloudSyncMetricsService.reset()).thenReturn(cloudSyncMetrics);
         Mockito.doAnswer(invocation ->
                 new BackupPipelineContext(new HashMap<>(), new java.util.concurrent.atomic.AtomicInteger(),
                         new java.util.concurrent.atomic.AtomicLong()))
@@ -99,32 +91,6 @@ class FileCatalogServiceImplTest {
     @AfterEach
     void clearMdc() {
         CloudSyncContext.clear();
-    }
-
-    @Test
-    void performLocationSyncDelegatesToOrchestrator() throws Exception {
-        serviceImplSpy.performLocationSync(scanLocationConfigMock);
-
-        Mockito.verify(cloudSyncOrchestrator).performLocationSync(scanLocationConfigMock);
-    }
-
-    @Test
-    void performLocationSyncClearsMdcAfterExecution() throws Exception {
-        serviceImplSpy.performLocationSync(scanLocationConfigMock);
-
-        assertNull(MDC.get(CloudSyncContext.RUN_ID_KEY));
-        assertNull(MDC.get(CloudSyncContext.LOCATION_KEY));
-        assertNull(MDC.get(CloudSyncContext.PHASE_KEY));
-    }
-
-    @Test
-    void startAllLocationSyncsResetsMetricsAndDelegatesToOrchestrator() {
-        Mockito.when(cloudSyncOrchestrator.startAllLocationSyncs()).thenReturn(true);
-
-        assertTrue(serviceImplSpy.startAllLocationSyncs());
-
-        Mockito.verify(cloudSyncMetricsService).reset();
-        Mockito.verify(cloudSyncOrchestrator).startAllLocationSyncs();
     }
 
     @Test

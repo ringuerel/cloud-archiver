@@ -43,7 +43,9 @@ import com.homelab.ringue.cloud.archiver.service.ThumbnailService;
 
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
+import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 class FolderBackupServiceImplTest {
 
@@ -63,23 +65,19 @@ class FolderBackupServiceImplTest {
     @Mock
     private NotificationService notificationService;
     @Mock
-    private Counter filesUploadedCounter;
-    @Mock
-    private Timer uploadTimer;
-    @Mock
-    private DistributionSummary gcpUploadBytesSummary;
-    @Mock
     private CloudProviderConfig cloudProviderConfig;
     @Mock
     private CloudProvider cloudProvider;
     @Mock
     private ThumbnailService thumbnailService;
+    private MeterRegistry meterRegistry;
     @Spy
     private ScanLocationConfig scanLocationConfig = new ScanLocationConfig();
 
     @BeforeEach
     void setup() throws IOException {
         MockitoAnnotations.openMocks(this);
+        meterRegistry = new SimpleMeterRegistry();
         service = Mockito.spy(new FolderBackupServiceImpl(
                 fileCatalogItemRepository,
                 fileCatalogItemMapper,
@@ -87,9 +85,7 @@ class FolderBackupServiceImplTest {
                 applicationProperties,
                 notificationService,
                 thumbnailService,
-                filesUploadedCounter,
-                uploadTimer,
-                gcpUploadBytesSummary));
+                meterRegistry));
         scanLocationConfig.setScanFolder(TEST_SCAN_FOLDER);
         scanLocationConfig.setCollectionFetchSize(50);
         Mockito.when(applicationProperties.getCloudProviderConfig()).thenReturn(cloudProviderConfig);
@@ -256,8 +252,8 @@ class FolderBackupServiceImplTest {
         Mockito.verify(cloudProvider).upload(archived);
         Mockito.verify(thumbnailService).createOrUpdateThumbnail(archived, false);
         Mockito.verify(fileCatalogItemRepository).save(archived);
-        Mockito.verify(gcpUploadBytesSummary).record(archived.fileSize());
-        Mockito.verify(filesUploadedCounter).increment();
+        assertEquals(1.0, meterRegistry.counter("cloud_archiver_files_uploaded_total").count(), 0.001);
+        assertEquals(archived.fileSize(), meterRegistry.summary("cloud_archiver_gcp_upload_bytes").totalAmount(), 0.001);
         assertEquals(1, context.uploadedCount().get());
         assertEquals(archived.fileSize(), context.uploadedSize().get());
         assertEquals("req-123", MDC.get("requestId"));

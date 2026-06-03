@@ -50,7 +50,7 @@ class CloudSyncOrchestratorImplTest {
                 locationSyncOperations,
                 notificationService,
                 syncLockManager,
-                new SimpleMeterRegistry().timer("test.scan.duration"));
+                new SimpleMeterRegistry());
     }
 
     @AfterEach

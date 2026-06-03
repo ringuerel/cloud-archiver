@@ -42,6 +42,7 @@ import com.homelab.ringue.cloud.archiver.service.ThumbnailService;
 
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
+import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import lombok.extern.slf4j.Slf4j;
 
@@ -70,18 +71,23 @@ public class FolderBackupServiceImpl implements FolderBackupService {
             ApplicationProperties applicationProperties,
             NotificationService notificationService,
             ThumbnailService thumbnailService,
-            Counter filesUploadedCounter,
-            Timer uploadTimer,
-            DistributionSummary gcpUploadBytesSummary) {
+            MeterRegistry meterRegistry) {
         this.fileCatalogItemRepository = fileCatalogItemRepository;
         this.fileCatalogItemMapper = fileCatalogItemMapper;
         this.cloudProviderFactory = cloudProviderFactory;
         this.applicationProperties = applicationProperties;
         this.notificationService = notificationService;
         this.thumbnailService = thumbnailService;
-        this.filesUploadedCounter = filesUploadedCounter;
-        this.uploadTimer = uploadTimer;
-        this.gcpUploadBytesSummary = gcpUploadBytesSummary;
+        this.filesUploadedCounter = Counter.builder("cloud_archiver_files_uploaded_total")
+                .description("Total number of files successfully uploaded to the cloud")
+                .register(meterRegistry);
+        this.uploadTimer = Timer.builder("cloud_archiver_upload_duration_seconds")
+                .description("Time taken for file upload operations")
+                .register(meterRegistry);
+        this.gcpUploadBytesSummary = DistributionSummary.builder("cloud_archiver_gcp_upload_bytes")
+                .description("Total bytes uploaded to GCP")
+                .baseUnit("bytes")
+                .register(meterRegistry);
     }
 
     @Override

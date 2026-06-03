@@ -41,7 +41,6 @@ import com.homelab.ringue.cloud.archiver.repository.SyncSummaryRepository;
 import com.homelab.ringue.cloud.archiver.service.BackupPipelineContext;
 import com.homelab.ringue.cloud.archiver.service.CloudSyncContext;
 import com.homelab.ringue.cloud.archiver.service.CloudSyncMetricsService;
-import com.homelab.ringue.cloud.archiver.service.CloudSyncOrchestrator;
 import com.homelab.ringue.cloud.archiver.service.FileCatalogService;
 import com.homelab.ringue.cloud.archiver.service.FolderBackupService;
 import com.homelab.ringue.cloud.archiver.service.LocationSyncOperations;
@@ -66,7 +65,6 @@ public class FileCatalogServiceImpl implements FileCatalogService, LocationSyncO
     private final ApplicationProperties applicationProperties;
     private final NotificationService notificationService;
     private final CloudSyncMetricsService cloudSyncMetricsService;
-    private final CloudSyncOrchestrator cloudSyncOrchestrator;
     private final FolderBackupService folderBackupService;
     private final ThumbnailService thumbnailService;
 
@@ -80,7 +78,6 @@ public class FileCatalogServiceImpl implements FileCatalogService, LocationSyncO
             SyncSummaryRepository syncSummaryRepository,
             NotificationService notificationService,
             CloudSyncMetricsService cloudSyncMetricsService,
-            CloudSyncOrchestrator cloudSyncOrchestrator,
             FolderBackupService folderBackupService,
             ThumbnailService thumbnailService) {
         this.fileCatalogItemRepository = fileCatalogItemRepository;
@@ -89,7 +86,6 @@ public class FileCatalogServiceImpl implements FileCatalogService, LocationSyncO
         this.syncSummaryRepository = syncSummaryRepository;
         this.notificationService = notificationService;
         this.cloudSyncMetricsService = cloudSyncMetricsService;
-        this.cloudSyncOrchestrator = cloudSyncOrchestrator;
         this.folderBackupService = folderBackupService;
         this.thumbnailService = thumbnailService;
     }
@@ -180,8 +176,8 @@ public class FileCatalogServiceImpl implements FileCatalogService, LocationSyncO
     }
 
     @Override
-    public List<PendingDeletionItem> findPendingDeletion(Optional<String> fileNameContains, Optional<String> fileNameExact,
-            Optional<String> path) {
+    public List<PendingDeletionItem> findPendingDeletion(Optional<String> fileNameContains,
+            Optional<String> fileNameExact, Optional<String> path) {
         List<ScanLocationConfig> scanFolders = Optional.ofNullable(applicationProperties.getScanFolders())
                 .orElse(List.of());
 
@@ -264,16 +260,7 @@ public class FileCatalogServiceImpl implements FileCatalogService, LocationSyncO
         return ChronoUnit.DAYS.between(LocalDate.now(), eligibleDate);
     }
 
-    @Override
-    public void performLocationSync(ScanLocationConfig scanlocationconfig) throws CloudBackupException {
-        cloudSyncOrchestrator.performLocationSync(scanlocationconfig);
-    }
-
-    @Override
-    public boolean startAllLocationSyncs() {
-        cloudSyncMetricsService.reset();
-        return cloudSyncOrchestrator.startAllLocationSyncs();
-    }
+    // ---- LocationSyncOperations ----
 
     @Override
     public SyncSummaryItem executeBackup(ScanLocationConfig locationConfig) throws CloudBackupException {
@@ -297,6 +284,8 @@ public class FileCatalogServiceImpl implements FileCatalogService, LocationSyncO
                 summaryItem.deleteSize(),
                 locationConfig);
     }
+
+    // ---- private helpers ----
 
     private void startCloudBackup(ScanLocationConfig locationConfig) throws CloudBackupException {
         CloudSyncContext.updatePhase(PHASE_BACKUP);

@@ -27,6 +27,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import com.homelab.ringue.cloud.archiver.domain.FileCatalogItem;
 import com.homelab.ringue.cloud.archiver.service.FileCatalogService;
+import com.homelab.ringue.cloud.archiver.service.SyncFacadeService;
 
 @WebMvcTest(FileCatalogController.class)
 public class FileCatalogControllerTest {
@@ -36,6 +37,9 @@ public class FileCatalogControllerTest {
 
     @MockBean
     private FileCatalogService fileCatalogService;
+
+    @MockBean
+    private SyncFacadeService syncFacadeService;
 
     @Test
     void getByFileName_shouldReturnListOfFileCatalogItems() throws Exception {
@@ -133,7 +137,7 @@ public class FileCatalogControllerTest {
 
     @Test
     void performReconcile_syncStarted_shouldReturnOk() throws Exception {
-        when(fileCatalogService.startAllLocationSyncs()).thenReturn(true);
+        when(syncFacadeService.startAllLocationSyncs()).thenReturn(true);
 
         mockMvc.perform(post("/file-catalog/sync")
                         .contentType(MediaType.APPLICATION_JSON))
@@ -143,7 +147,7 @@ public class FileCatalogControllerTest {
 
     @Test
     void performReconcile_syncAlreadyRunning_shouldReturnConflict() throws Exception {
-        when(fileCatalogService.startAllLocationSyncs()).thenReturn(false);
+        when(syncFacadeService.startAllLocationSyncs()).thenReturn(false);
 
         mockMvc.perform(post("/file-catalog/sync")
                         .contentType(MediaType.APPLICATION_JSON))

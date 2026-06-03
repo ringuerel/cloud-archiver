@@ -17,6 +17,7 @@ import com.homelab.ringue.cloud.archiver.service.LocationSyncOperations;
 import com.homelab.ringue.cloud.archiver.service.NotificationService;
 import com.homelab.ringue.cloud.archiver.service.SyncLockManager;
 
+import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import lombok.extern.slf4j.Slf4j;
 
@@ -35,12 +36,14 @@ public class CloudSyncOrchestratorImpl implements CloudSyncOrchestrator {
             LocationSyncOperations locationSyncOperations,
             NotificationService notificationService,
             SyncLockManager syncLockManager,
-            Timer scanDurationTimer) {
+            MeterRegistry meterRegistry) {
         this.applicationProperties = applicationProperties;
         this.locationSyncOperations = locationSyncOperations;
         this.notificationService = notificationService;
         this.syncLockManager = syncLockManager;
-        this.scanDurationTimer = scanDurationTimer;
+        this.scanDurationTimer = Timer.builder("cloud_archiver_scan_duration_seconds")
+                .description("Duration of the folder scanning process")
+                .register(meterRegistry);
     }
 
     @Override
