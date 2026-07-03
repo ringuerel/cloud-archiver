@@ -4,7 +4,6 @@ import org.springframework.stereotype.Service;
 
 import com.homelab.ringue.cloud.archiver.config.ApplicationProperties.ScanLocationConfig;
 import com.homelab.ringue.cloud.archiver.exception.CloudBackupException;
-import com.homelab.ringue.cloud.archiver.service.CloudSyncMetricsService;
 import com.homelab.ringue.cloud.archiver.service.CloudSyncOrchestrator;
 import com.homelab.ringue.cloud.archiver.service.SyncFacadeService;
 
@@ -15,13 +14,9 @@ import lombok.extern.slf4j.Slf4j;
 public class SyncFacadeServiceImpl implements SyncFacadeService {
 
     private final CloudSyncOrchestrator cloudSyncOrchestrator;
-    private final CloudSyncMetricsService cloudSyncMetricsService;
 
-    public SyncFacadeServiceImpl(
-            CloudSyncOrchestrator cloudSyncOrchestrator,
-            CloudSyncMetricsService cloudSyncMetricsService) {
+    public SyncFacadeServiceImpl(CloudSyncOrchestrator cloudSyncOrchestrator) {
         this.cloudSyncOrchestrator = cloudSyncOrchestrator;
-        this.cloudSyncMetricsService = cloudSyncMetricsService;
     }
 
     @Override
@@ -31,7 +26,6 @@ public class SyncFacadeServiceImpl implements SyncFacadeService {
 
     @Override
     public boolean startAllLocationSyncs() {
-        cloudSyncMetricsService.reset();
         return cloudSyncOrchestrator.startAllLocationSyncs();
     }
 }

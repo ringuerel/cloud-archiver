@@ -10,8 +10,8 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
-import java.util.Date;
 import java.util.Collections;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -37,15 +37,15 @@ import com.homelab.ringue.cloud.archiver.domain.FileCatalogItem;
 import com.homelab.ringue.cloud.archiver.repository.FileCatalogItemRepository;
 import com.homelab.ringue.cloud.archiver.service.BackupPipelineContext;
 import com.homelab.ringue.cloud.archiver.service.CloudSyncContext;
+import com.homelab.ringue.cloud.archiver.service.CloudSyncMetrics;
+import com.homelab.ringue.cloud.archiver.service.CloudSyncMetricsService;
 import com.homelab.ringue.cloud.archiver.service.FileCatalogItemMapper;
 import com.homelab.ringue.cloud.archiver.service.NotificationService;
 import com.homelab.ringue.cloud.archiver.service.ThumbnailService;
 
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
-import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 class FolderBackupServiceImplTest {
 
@@ -70,14 +70,22 @@ class FolderBackupServiceImplTest {
     private CloudProvider cloudProvider;
     @Mock
     private ThumbnailService thumbnailService;
-    private MeterRegistry meterRegistry;
+    @Mock
+    private CloudSyncMetricsService cloudSyncMetricsService;
+    @Mock
+    private CloudSyncMetrics cloudSyncMetrics;
+    @Mock
+    private Counter filesUploadedCounter;
+    @Mock
+    private DistributionSummary gcpUploadBytesSummary;
+    @Mock
+    private Timer uploadTimer;
     @Spy
     private ScanLocationConfig scanLocationConfig = new ScanLocationConfig();
 
     @BeforeEach
     void setup() throws IOException {
         MockitoAnnotations.openMocks(this);
-        meterRegistry = new SimpleMeterRegistry();
         service = Mockito.spy(new FolderBackupServiceImpl(
                 fileCatalogItemRepository,
                 fileCatalogItemMapper,
@@ -85,12 +93,16 @@ class FolderBackupServiceImplTest {
                 applicationProperties,
                 notificationService,
                 thumbnailService,
-                meterRegistry));
+                cloudSyncMetricsService));
         scanLocationConfig.setScanFolder(TEST_SCAN_FOLDER);
         scanLocationConfig.setCollectionFetchSize(50);
         Mockito.when(applicationProperties.getCloudProviderConfig()).thenReturn(cloudProviderConfig);
         Mockito.when(cloudProviderConfig.getType()).thenReturn(CloudProviders.NO_PROVIDER);
         Mockito.when(cloudProviderFactory.getCloudProvider(Mockito.any())).thenReturn(cloudProvider);
+        Mockito.when(cloudSyncMetricsService.current()).thenReturn(cloudSyncMetrics);
+        Mockito.when(cloudSyncMetrics.filesUploadedCounter()).thenReturn(filesUploadedCounter);
+        Mockito.when(cloudSyncMetrics.gcpUploadBytesSummary()).thenReturn(gcpUploadBytesSummary);
+        Mockito.when(cloudSyncMetrics.uploadTimer()).thenReturn(uploadTimer);
         Mockito.doReturn(CRC32C).when(service).getCrC32C(Mockito.anyString());
     }
 
@@ -138,12 +150,15 @@ class FolderBackupServiceImplTest {
         Instant currentModified = Instant.now();
         FileCatalogItem existing = new FileCatalogItem(TEST_SCAN_FOLDER + "same-crc.jpg", "same-crc.jpg", "jpg",
                 TEST_SCAN_FOLDER, false, 10L, null, CRC32C, existingModified);
-        FileCatalogItem fileOnDisk = new FileCatalogItem(existing.absolutePath(), existing.fileName(), existing.fileExtension(),
-                existing.parentFolder(), false, existing.fileSize(), null, null, currentModified);
-        FileCatalogItem crcPopulated = new FileCatalogItem(existing.absolutePath(), existing.fileName(), existing.fileExtension(),
-                existing.parentFolder(), false, existing.fileSize(), null, CRC32C, currentModified);
-        FileCatalogItem updatedMetadata = new FileCatalogItem(existing.absolutePath(), existing.fileName(), existing.fileExtension(),
-                existing.parentFolder(), false, existing.fileSize(), null, CRC32C, currentModified);
+        FileCatalogItem fileOnDisk = new FileCatalogItem(existing.absolutePath(), existing.fileName(),
+                existing.fileExtension(), existing.parentFolder(), false, existing.fileSize(), null, null,
+                currentModified);
+        FileCatalogItem crcPopulated = new FileCatalogItem(existing.absolutePath(), existing.fileName(),
+                existing.fileExtension(), existing.parentFolder(), false, existing.fileSize(), null, CRC32C,
+                currentModified);
+        FileCatalogItem updatedMetadata = new FileCatalogItem(existing.absolutePath(), existing.fileName(),
+                existing.fileExtension(), existing.parentFolder(), false, existing.fileSize(), null, CRC32C,
+                currentModified);
         Map<String, FileCatalogItem> cache = new HashMap<>();
         cache.put(existing.absolutePath(), existing);
         Mockito.doReturn(crcPopulated).when(service).getCrC32CPopulatedItem(fileOnDisk);
@@ -161,10 +176,12 @@ class FolderBackupServiceImplTest {
         Instant currentModified = Instant.now();
         FileCatalogItem existing = new FileCatalogItem(TEST_SCAN_FOLDER + "changed.jpg", "changed.jpg", "jpg",
                 TEST_SCAN_FOLDER, false, 10L, null, CRC32C, currentModified.minusSeconds(60));
-        FileCatalogItem fileOnDisk = new FileCatalogItem(existing.absolutePath(), existing.fileName(), existing.fileExtension(),
-                existing.parentFolder(), false, existing.fileSize(), null, null, currentModified);
-        FileCatalogItem crcPopulated = new FileCatalogItem(existing.absolutePath(), existing.fileName(), existing.fileExtension(),
-                existing.parentFolder(), false, existing.fileSize(), null, CRC32C + "-new", currentModified);
+        FileCatalogItem fileOnDisk = new FileCatalogItem(existing.absolutePath(), existing.fileName(),
+                existing.fileExtension(), existing.parentFolder(), false, existing.fileSize(), null, null,
+                currentModified);
+        FileCatalogItem crcPopulated = new FileCatalogItem(existing.absolutePath(), existing.fileName(),
+                existing.fileExtension(), existing.parentFolder(), false, existing.fileSize(), null, CRC32C + "-new",
+                currentModified);
         Map<String, FileCatalogItem> cache = new HashMap<>();
         cache.put(existing.absolutePath(), existing);
         Mockito.doReturn(crcPopulated).when(service).getCrC32CPopulatedItem(fileOnDisk);
@@ -186,14 +203,13 @@ class FolderBackupServiceImplTest {
                 TEST_SCAN_FOLDER, false, 30L, null, null, Instant.now());
         FileCatalogItem leftover = new FileCatalogItem(TEST_SCAN_FOLDER + "leftover.jpg", "leftover.jpg", "jpg",
                 TEST_SCAN_FOLDER, false, 40L, null, CRC32C, Instant.now());
-        BackupPipelineContext context = new BackupPipelineContext(new HashMap<>(Map.of(leftover.absolutePath(), leftover)),
-                new java.util.concurrent.atomic.AtomicInteger(), new java.util.concurrent.atomic.AtomicLong());
+        BackupPipelineContext context = new BackupPipelineContext(
+                new HashMap<>(Map.of(leftover.absolutePath(), leftover)),
+                new java.util.concurrent.atomic.AtomicInteger(),
+                new java.util.concurrent.atomic.AtomicLong());
 
         Mockito.when(fileCatalogItemMapper.mapFromPath(Mockito.any()))
-                .thenReturn(directory)
-                .thenReturn(ignored)
-                .thenReturn(upload)
-                .thenReturn(metadataOnly);
+                .thenReturn(directory).thenReturn(ignored).thenReturn(upload).thenReturn(metadataOnly);
         Mockito.doReturn(false).when(service).applyFilteringRules(scanLocationConfig, directory);
         Mockito.doReturn(false).when(service).applyFilteringRules(scanLocationConfig, ignored);
         Mockito.doReturn(true).when(service).applyFilteringRules(scanLocationConfig, upload);
@@ -252,8 +268,8 @@ class FolderBackupServiceImplTest {
         Mockito.verify(cloudProvider).upload(archived);
         Mockito.verify(thumbnailService).createOrUpdateThumbnail(archived, false);
         Mockito.verify(fileCatalogItemRepository).save(archived);
-        assertEquals(1.0, meterRegistry.counter("cloud_archiver_files_uploaded_total").count(), 0.001);
-        assertEquals(archived.fileSize(), meterRegistry.summary("cloud_archiver_gcp_upload_bytes").totalAmount(), 0.001);
+        Mockito.verify(gcpUploadBytesSummary).record(archived.fileSize());
+        Mockito.verify(filesUploadedCounter).increment();
         assertEquals(1, context.uploadedCount().get());
         assertEquals(archived.fileSize(), context.uploadedSize().get());
         assertEquals("req-123", MDC.get("requestId"));
@@ -286,8 +302,8 @@ class FolderBackupServiceImplTest {
 
     @Test
     void performCloudBackupRestoresSyncMdcEnvelope() throws Exception {
-        FileCatalogItem fileCatalogItem = new FileCatalogItem(TEST_SCAN_FOLDER + "upload-again.jpg", "upload-again.jpg", "jpg",
-                TEST_SCAN_FOLDER, false, 20L, null, CRC32C, Instant.now());
+        FileCatalogItem fileCatalogItem = new FileCatalogItem(TEST_SCAN_FOLDER + "upload-again.jpg", "upload-again.jpg",
+                "jpg", TEST_SCAN_FOLDER, false, 20L, null, CRC32C, Instant.now());
         FileCatalogItem archived = new FileCatalogItem(fileCatalogItem.absolutePath(), fileCatalogItem.fileName(),
                 fileCatalogItem.fileExtension(), fileCatalogItem.parentFolder(), false, fileCatalogItem.fileSize(),
                 new Date(), fileCatalogItem.crc32c(), fileCatalogItem.lastModified());
@@ -313,8 +329,10 @@ class FolderBackupServiceImplTest {
     void backUpFolderLoadsCatalogProcessesStreamAndReturnsAggregatedContext() throws Exception {
         FileCatalogItem cached = new FileCatalogItem(TEST_SCAN_FOLDER + "cached.jpg", "cached.jpg", "jpg",
                 TEST_SCAN_FOLDER, false, 1L, null, CRC32C, Instant.now());
-        BackupPipelineContext processed = new BackupPipelineContext(new HashMap<>(Map.of(cached.absolutePath(), cached)),
-                new java.util.concurrent.atomic.AtomicInteger(2), new java.util.concurrent.atomic.AtomicLong(42L));
+        BackupPipelineContext processed = new BackupPipelineContext(
+                new HashMap<>(Map.of(cached.absolutePath(), cached)),
+                new java.util.concurrent.atomic.AtomicInteger(2),
+                new java.util.concurrent.atomic.AtomicLong(42L));
         Mockito.when(fileCatalogItemRepository.findByParentFolderStartsWith(Mockito.anyString(), Mockito.any()))
                 .thenReturn(org.springframework.data.domain.Page.empty());
         Mockito.doAnswer(invocation -> {
@@ -325,7 +343,8 @@ class FolderBackupServiceImplTest {
         }).when(service).processFileStreamForBackup(Mockito.eq(scanLocationConfig), Mockito.any(), Mockito.any());
 
         try (MockedStatic<Files> files = mockStatic(Files.class)) {
-            files.when(() -> Files.walk(Path.of(TEST_SCAN_FOLDER))).thenReturn(Stream.of(Path.of(TEST_SCAN_FOLDER + "a.jpg")));
+            files.when(() -> Files.walk(Path.of(TEST_SCAN_FOLDER)))
+                    .thenReturn(Stream.of(Path.of(TEST_SCAN_FOLDER + "a.jpg")));
 
             BackupPipelineContext result = service.backUpFolder(scanLocationConfig);
 

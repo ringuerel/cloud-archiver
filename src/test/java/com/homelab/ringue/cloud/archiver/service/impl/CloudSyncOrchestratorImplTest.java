@@ -23,11 +23,11 @@ import com.homelab.ringue.cloud.archiver.config.ApplicationProperties.ScanLocati
 import com.homelab.ringue.cloud.archiver.domain.SyncSummaryItem;
 import com.homelab.ringue.cloud.archiver.exception.CloudBackupException;
 import com.homelab.ringue.cloud.archiver.service.CloudSyncContext;
+import com.homelab.ringue.cloud.archiver.service.CloudSyncMetrics;
+import com.homelab.ringue.cloud.archiver.service.CloudSyncMetricsService;
 import com.homelab.ringue.cloud.archiver.service.LocationSyncOperations;
 import com.homelab.ringue.cloud.archiver.service.NotificationService;
 import com.homelab.ringue.cloud.archiver.service.SyncLockManager;
-
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 @ExtendWith(MockitoExtension.class)
 class CloudSyncOrchestratorImplTest {
@@ -40,6 +40,10 @@ class CloudSyncOrchestratorImplTest {
     private NotificationService notificationService;
     @Mock
     private SyncLockManager syncLockManager;
+    @Mock
+    private CloudSyncMetricsService cloudSyncMetricsService;
+    @Mock
+    private CloudSyncMetrics cloudSyncMetrics;
 
     private CloudSyncOrchestratorImpl orchestrator;
 
@@ -50,7 +54,11 @@ class CloudSyncOrchestratorImplTest {
                 locationSyncOperations,
                 notificationService,
                 syncLockManager,
-                new SimpleMeterRegistry());
+                cloudSyncMetricsService);
+        Mockito.when(cloudSyncMetricsService.current()).thenReturn(cloudSyncMetrics);
+        Mockito.when(cloudSyncMetrics.scanDurationTimer())
+                .thenReturn(new io.micrometer.core.instrument.simple.SimpleMeterRegistry()
+                        .timer("cloud_archiver_scan_duration_seconds"));
     }
 
     @AfterEach

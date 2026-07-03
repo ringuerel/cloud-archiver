@@ -12,13 +12,11 @@ import com.homelab.ringue.cloud.archiver.config.ApplicationProperties.ScanLocati
 import com.homelab.ringue.cloud.archiver.domain.SyncSummaryItem;
 import com.homelab.ringue.cloud.archiver.exception.CloudBackupException;
 import com.homelab.ringue.cloud.archiver.service.CloudSyncContext;
+import com.homelab.ringue.cloud.archiver.service.CloudSyncMetricsService;
 import com.homelab.ringue.cloud.archiver.service.CloudSyncOrchestrator;
 import com.homelab.ringue.cloud.archiver.service.LocationSyncOperations;
 import com.homelab.ringue.cloud.archiver.service.NotificationService;
 import com.homelab.ringue.cloud.archiver.service.SyncLockManager;
-
-import io.micrometer.core.instrument.MeterRegistry;
-import io.micrometer.core.instrument.Timer;
 import lombok.extern.slf4j.Slf4j;
 
 @Service
@@ -29,21 +27,19 @@ public class CloudSyncOrchestratorImpl implements CloudSyncOrchestrator {
     private final LocationSyncOperations locationSyncOperations;
     private final NotificationService notificationService;
     private final SyncLockManager syncLockManager;
-    private final Timer scanDurationTimer;
+    private final CloudSyncMetricsService cloudSyncMetricsService;
 
     public CloudSyncOrchestratorImpl(
             ApplicationProperties applicationProperties,
             LocationSyncOperations locationSyncOperations,
             NotificationService notificationService,
             SyncLockManager syncLockManager,
-            MeterRegistry meterRegistry) {
+            CloudSyncMetricsService cloudSyncMetricsService) {
         this.applicationProperties = applicationProperties;
         this.locationSyncOperations = locationSyncOperations;
         this.notificationService = notificationService;
         this.syncLockManager = syncLockManager;
-        this.scanDurationTimer = Timer.builder("cloud_archiver_scan_duration_seconds")
-                .description("Duration of the folder scanning process")
-                .register(meterRegistry);
+        this.cloudSyncMetricsService = cloudSyncMetricsService;
     }
 
     @Override
@@ -68,7 +64,7 @@ public class CloudSyncOrchestratorImpl implements CloudSyncOrchestrator {
                     locationSummary.uploadSize(),
                     locationSummary.deleteCount(),
                     locationSummary.deleteSize());
-            scanDurationTimer.record(Duration.between(start, Instant.now()));
+            cloudSyncMetricsService.current().scanDurationTimer().record(Duration.between(start, Instant.now()));
         }
     }
 

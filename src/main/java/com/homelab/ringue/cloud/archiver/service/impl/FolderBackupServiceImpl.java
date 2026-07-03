@@ -35,15 +35,11 @@ import com.homelab.ringue.cloud.archiver.exception.CloudBackupException;
 import com.homelab.ringue.cloud.archiver.repository.FileCatalogItemRepository;
 import com.homelab.ringue.cloud.archiver.service.BackupPipelineContext;
 import com.homelab.ringue.cloud.archiver.service.CloudSyncContext;
+import com.homelab.ringue.cloud.archiver.service.CloudSyncMetricsService;
 import com.homelab.ringue.cloud.archiver.service.FileCatalogItemMapper;
 import com.homelab.ringue.cloud.archiver.service.FolderBackupService;
 import com.homelab.ringue.cloud.archiver.service.NotificationService;
 import com.homelab.ringue.cloud.archiver.service.ThumbnailService;
-
-import io.micrometer.core.instrument.Counter;
-import io.micrometer.core.instrument.DistributionSummary;
-import io.micrometer.core.instrument.MeterRegistry;
-import io.micrometer.core.instrument.Timer;
 import lombok.extern.slf4j.Slf4j;
 
 @Service
@@ -60,9 +56,7 @@ public class FolderBackupServiceImpl implements FolderBackupService {
     private final ApplicationProperties applicationProperties;
     private final NotificationService notificationService;
     private final ThumbnailService thumbnailService;
-    private final Counter filesUploadedCounter;
-    private final Timer uploadTimer;
-    private final DistributionSummary gcpUploadBytesSummary;
+    private final CloudSyncMetricsService cloudSyncMetricsService;
 
     public FolderBackupServiceImpl(
             FileCatalogItemRepository fileCatalogItemRepository,
@@ -71,23 +65,14 @@ public class FolderBackupServiceImpl implements FolderBackupService {
             ApplicationProperties applicationProperties,
             NotificationService notificationService,
             ThumbnailService thumbnailService,
-            MeterRegistry meterRegistry) {
+            CloudSyncMetricsService cloudSyncMetricsService) {
         this.fileCatalogItemRepository = fileCatalogItemRepository;
         this.fileCatalogItemMapper = fileCatalogItemMapper;
         this.cloudProviderFactory = cloudProviderFactory;
         this.applicationProperties = applicationProperties;
         this.notificationService = notificationService;
         this.thumbnailService = thumbnailService;
-        this.filesUploadedCounter = Counter.builder("cloud_archiver_files_uploaded_total")
-                .description("Total number of files successfully uploaded to the cloud")
-                .register(meterRegistry);
-        this.uploadTimer = Timer.builder("cloud_archiver_upload_duration_seconds")
-                .description("Time taken for file upload operations")
-                .register(meterRegistry);
-        this.gcpUploadBytesSummary = DistributionSummary.builder("cloud_archiver_gcp_upload_bytes")
-                .description("Total bytes uploaded to GCP")
-                .baseUnit("bytes")
-                .register(meterRegistry);
+        this.cloudSyncMetricsService = cloudSyncMetricsService;
     }
 
     @Override
@@ -217,7 +202,7 @@ public class FolderBackupServiceImpl implements FolderBackupService {
                         .upload(archivableItem);
                 long durationMs = (System.nanoTime() - startTime) / 1_000_000;
 
-                gcpUploadBytesSummary.record(archivableItem.fileSize());
+                cloudSyncMetricsService.current().gcpUploadBytesSummary().record(archivableItem.fileSize());
 
                 log.info("[GCP] Uploaded {} ({} bytes) in {} ms",
                         archivableItem.absolutePath(), archivableItem.fileSize(), durationMs);
@@ -225,8 +210,8 @@ public class FolderBackupServiceImpl implements FolderBackupService {
                 fileCatalogItemRepository.save(itemWithThumbnail);
                 context.uploadedCount().incrementAndGet();
                 context.uploadedSize().addAndGet(archivableItem.fileSize());
-                filesUploadedCounter.increment();
-                uploadTimer.record(Duration.between(uploadStart, Instant.now()));
+                cloudSyncMetricsService.current().filesUploadedCounter().increment();
+                cloudSyncMetricsService.current().uploadTimer().record(Duration.between(uploadStart, Instant.now()));
             } catch (Exception e) {
                 log.error("[GCP] Failed to upload {} to the cloud provider for scanFolder {}",
                         fileCatalogItem.absolutePath(), locationConfig.getScanFolder(), e);
