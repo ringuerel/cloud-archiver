@@ -1,6 +1,5 @@
 package com.homelab.ringue.cloud.archiver.service.impl;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -55,6 +54,9 @@ class CloudSyncOrchestratorImplTest {
                 notificationService,
                 syncLockManager,
                 cloudSyncMetricsService);
+    }
+
+    private void stubScanDurationTimer() {
         Mockito.when(cloudSyncMetricsService.current()).thenReturn(cloudSyncMetrics);
         Mockito.when(cloudSyncMetrics.scanDurationTimer())
                 .thenReturn(new io.micrometer.core.instrument.simple.SimpleMeterRegistry()
@@ -81,6 +83,7 @@ class CloudSyncOrchestratorImplTest {
 
     @Test
     void startAllLocationSyncsRunsEachLocationAndReleasesLock() throws Exception {
+        stubScanDurationTimer();
         ScanLocationConfig first = scanLocation("/scan/a", true);
         ScanLocationConfig second = scanLocation("/scan/b", false);
         Mockito.when(applicationProperties.getSyncLockTimeoutSeconds()).thenReturn(15L);
@@ -108,6 +111,7 @@ class CloudSyncOrchestratorImplTest {
 
     @Test
     void startAllLocationSyncsContinuesAfterLocationFailureAndNotifies() throws Exception {
+        stubScanDurationTimer();
         ScanLocationConfig broken = scanLocation("/scan/broken", false);
         ScanLocationConfig healthy = scanLocation("/scan/healthy", false);
         Mockito.when(applicationProperties.getSyncLockTimeoutSeconds()).thenReturn(9L);
@@ -131,6 +135,7 @@ class CloudSyncOrchestratorImplTest {
 
     @Test
     void performLocationSyncPersistsMergedSummaryAndClearsMdc() throws Exception {
+        stubScanDurationTimer();
         ScanLocationConfig location = scanLocation("/scan/photos", true);
         Mockito.when(locationSyncOperations.executeBackup(location))
                 .thenReturn(summary(3, 300L, 0, 0L));
@@ -153,6 +158,7 @@ class CloudSyncOrchestratorImplTest {
 
     @Test
     void performLocationSyncSkipsCleanupWhenDisabled() throws Exception {
+        stubScanDurationTimer();
         ScanLocationConfig location = scanLocation("/scan/videos", false);
         Mockito.when(locationSyncOperations.executeBackup(location))
                 .thenReturn(summary(4, 400L, 0, 0L));
