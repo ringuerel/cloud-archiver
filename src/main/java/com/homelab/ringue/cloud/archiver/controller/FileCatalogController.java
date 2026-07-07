@@ -15,9 +15,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.homelab.ringue.cloud.archiver.domain.FileCatalogItem;
 import com.homelab.ringue.cloud.archiver.domain.PendingDeletionItem;
-import com.homelab.ringue.cloud.archiver.domain.ThumbnailRebuildMode;
-import com.homelab.ringue.cloud.archiver.domain.ThumbnailRebuildSummary;
 import com.homelab.ringue.cloud.archiver.service.FileCatalogService;
+import com.homelab.ringue.cloud.archiver.service.SyncFacadeService;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -30,11 +29,13 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 @Tag(name = "File Catalog", description = "API for managing file catalog items")
 public class FileCatalogController {
 
-    private FileCatalogService fileCatalogService;
+    private final FileCatalogService fileCatalogService;
+    private final SyncFacadeService syncFacadeService;
 
     @Autowired
-    public FileCatalogController(FileCatalogService fileCatalogService){
+    public FileCatalogController(FileCatalogService fileCatalogService, SyncFacadeService syncFacadeService) {
         this.fileCatalogService = fileCatalogService;
+        this.syncFacadeService = syncFacadeService;
     }
 
     @Operation(summary = "Get file catalog items by file name",
@@ -45,7 +46,7 @@ public class FileCatalogController {
                })
     @GetMapping
     public List<FileCatalogItem> getByFileName(
-            @Parameter(description = "Part of the file name to search for") @RequestParam("fileName") String fileName){
+            @Parameter(description = "Part of the file name to search for") @RequestParam("fileName") String fileName) {
         return fileCatalogService.findByFileNameContains(fileName);
     }
 
@@ -57,7 +58,7 @@ public class FileCatalogController {
                })
     @GetMapping("/similar")
     public List<FileCatalogItem> getSimilarByFileName(
-            @Parameter(description = "File name to find similar items for") @RequestParam("fileName") String fileName){
+            @Parameter(description = "File name to find similar items for") @RequestParam("fileName") String fileName) {
         return fileCatalogService.findByFileNameSimilar(fileName);
     }
 
@@ -71,7 +72,7 @@ public class FileCatalogController {
     public List<FileCatalogItem> getArchivedItemsByDateRange(
             @Parameter(description = "Start date for the archive range (YYYY-MM-DD)") @RequestParam("startDate") String startDate,
             @Parameter(description = "End date for the archive range (YYYY-MM-DD)") @RequestParam("endDate") String endDate,
-            @Parameter(description = "Optional path to filter archived items") @RequestParam(value = "path", required = false) Optional<String> path){
+            @Parameter(description = "Optional path to filter archived items") @RequestParam(value = "path", required = false) Optional<String> path) {
         return fileCatalogService.findByArchiveDateBetweenAndAbsolutePathStartsWith(startDate, endDate, path);
     }
 
@@ -106,22 +107,6 @@ public class FileCatalogController {
         return fileCatalogService.findPendingDeletion(fileNameContains, fileNameExact, path);
     }
 
-    @Operation(summary = "Rebuild thumbnails",
-               description = "Creates or refreshes thumbnail metadata for catalog entries without re-uploading original files.",
-               responses = {
-                   @ApiResponse(responseCode = "200", description = "Thumbnail rebuild completed"),
-                   @ApiResponse(responseCode = "500", description = "Internal server error")
-               })
-    @PostMapping("/thumbnails/rebuild")
-    public ThumbnailRebuildSummary rebuildThumbnails(
-            @Parameter(description = "Rebuild mode: MISSING_ONLY, FAILED_ONLY, or FORCE") @RequestParam(value = "mode", defaultValue = "MISSING_ONLY") ThumbnailRebuildMode mode,
-            @Parameter(description = "Optional catalog path prefix") @RequestParam(value = "path", required = false) Optional<String> path,
-            @Parameter(description = "Optional case-insensitive filename substring") @RequestParam(value = "fileNameContains", required = false) Optional<String> fileNameContains,
-            @Parameter(description = "Maximum number of items to process") @RequestParam(value = "limit", required = false) Optional<Integer> limit,
-            @Parameter(description = "Maximum number of thumbnail rebuild workers for this request") @RequestParam(value = "concurrency", required = false) Optional<Integer> concurrency) {
-        return fileCatalogService.rebuildThumbnails(mode, path, fileNameContains, limit, concurrency);
-    }
-
     @Operation(summary = "Trigger a manual sync process",
                description = "Initiates a full synchronization process for all configured scan locations. This endpoint will prevent concurrent syncs by checking a lock. If a sync is already running, it will return a conflict status.",
                responses = {
@@ -129,8 +114,8 @@ public class FileCatalogController {
                    @ApiResponse(responseCode = "409", description = "Sync process skipped: another sync is already running")
                })
     @PostMapping("/sync")
-    public ResponseEntity<String> performReconcile(){
-        boolean syncStarted = fileCatalogService.startAllLocationSyncs();
+    public ResponseEntity<String> performReconcile() {
+        boolean syncStarted = syncFacadeService.startAllLocationSyncs();
         if (syncStarted) {
             return ResponseEntity.ok("Sync process initiated successfully.");
         } else {

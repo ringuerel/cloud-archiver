@@ -1,8 +1,15 @@
 # REST API Reference
 
-Base path: `/cloud-archiver/file-catalog`  
+Base path: `/cloud-archiver`  
 Default port: `8080`  
 Interactive docs: `http://localhost:8080/cloud-archiver/swagger-ui/index.html`
+
+## Controllers
+
+| Controller | Base path | Responsibility |
+|------------|-----------|----------------|
+| `FileCatalogController` | `/cloud-archiver/file-catalog` | Catalog queries, download, sync trigger |
+| `ThumbnailController` | `/cloud-archiver/thumbnails` | Thumbnail rebuild operations |
 
 ---
 
@@ -159,9 +166,11 @@ Trigger a full sync of all configured scan locations immediately (same logic as 
 
 ---
 
-### POST `/file-catalog/thumbnails/rebuild`
+### POST `/thumbnails/rebuild`
 
 Create or refresh local thumbnail metadata for existing catalog entries without re-uploading original files.
+
+> **Base path change:** This endpoint moved from `/file-catalog/thumbnails/rebuild` to `/thumbnails/rebuild` as part of the orchestration isolation refactor.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
@@ -174,9 +183,9 @@ Create or refresh local thumbnail metadata for existing catalog entries without 
 **Examples:**
 
 ```
-POST /cloud-archiver/file-catalog/thumbnails/rebuild?mode=MISSING_ONLY&path=/immich/library
-POST /cloud-archiver/file-catalog/thumbnails/rebuild?mode=FAILED_ONLY&limit=100&concurrency=4
-POST /cloud-archiver/file-catalog/thumbnails/rebuild?mode=FORCE&fileNameContains=jpg
+POST /cloud-archiver/thumbnails/rebuild?mode=MISSING_ONLY&path=/immich/library
+POST /cloud-archiver/thumbnails/rebuild?mode=FAILED_ONLY&limit=100&concurrency=4
+POST /cloud-archiver/thumbnails/rebuild?mode=FORCE&fileNameContains=jpg
 ```
 
 **Response** `200 OK`
@@ -210,34 +219,43 @@ Global exception handler (`FileCatalogResponseEntityExceptionHandler`):
 sequenceDiagram
     participant Client
     participant Controller as FileCatalogController
-    participant Service as FileCatalogServiceImpl
+    participant Facade as SyncFacadeService
+    participant Orchestrator as CloudSyncOrchestrator
     participant Lock as SyncLockManager
+    participant Backup as FolderBackupService
+    participant Thumbnail as ThumbnailService
     participant Cloud as GCPStorageProvider
     participant DB as MongoDB
 
     Client->>Controller: POST /file-catalog/sync
-    Controller->>Service: startAllLocationSyncs()
-    Service->>Lock: acquireLock()
+    Controller->>Facade: startAllLocationSyncs()
+    Facade->>Orchestrator: startAllLocationSyncs()
+    Orchestrator->>Lock: acquireLock()
     alt Lock acquired
-        Lock-->>Service: true
+        Lock-->>Orchestrator: true
         loop Each ScanLocationConfig
-            Service->>DB: load catalog (paginated)
-            Service->>Service: Files.walk() + CRC32C
-            Service->>Cloud: upload(fileCatalogItem)
-            Service->>DB: save(fileCatalogItem)
-            opt cleanRemovedFromCloud
-                Service->>DB: findByParentFolderStartsWith (paginated)
-                Service->>Cloud: delete(fileCatalogItem)
-                Service->>DB: delete(fileCatalogItem)
+            Orchestrator->>Backup: backUpFolder(locationConfig)
+            loop Each new/modified file
+                Backup->>Cloud: upload(fileCatalogItem)
+                Backup->>Thumbnail: createOrUpdateThumbnail(item, false)
+                Thumbnail-->>Backup: item with thumbnail metadata
+                Backup->>DB: save(itemWithThumbnail)
             end
-            Service->>DB: save(SyncSummaryItem)
+            opt cleanRemovedFromCloud
+                loop Each catalog entry missing from disk
+                    Orchestrator->>Cloud: delete(fileCatalogItem)
+                    Orchestrator->>DB: delete(fileCatalogItem)
+                    Orchestrator->>Thumbnail: deleteThumbnail(fileCatalogItem)
+                end
+            end
+            Orchestrator->>DB: save(SyncSummaryItem)
         end
-        Service->>Lock: releaseLock()
-        Service-->>Controller: true
+        Orchestrator->>Lock: releaseLock()
+        Facade-->>Controller: true
         Controller-->>Client: 200 OK
     else Lock not acquired
-        Lock-->>Service: false
-        Service-->>Controller: false
+        Lock-->>Orchestrator: false
+        Facade-->>Controller: false
         Controller-->>Client: 409 Conflict
     end
 ```

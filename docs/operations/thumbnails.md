@@ -68,11 +68,11 @@ Generated thumbnail files are stored under hash-sharded folders such as `/thumbn
 
 ## Rebuild Existing Thumbnails
 
-Backfill thumbnails for existing catalog entries:
+Backfill thumbnails for existing catalog entries. The rebuild endpoint lives under the dedicated `thumbnails` controller:
 
 ```bash
-curl -X POST "http://localhost:8080/cloud-archiver/file-catalog/thumbnails/rebuild?mode=MISSING_ONLY&path=/immich/library"
-curl -X POST "http://localhost:8080/cloud-archiver/file-catalog/thumbnails/rebuild?mode=FAILED_ONLY&limit=100&concurrency=4"
+curl -X POST "http://localhost:8080/cloud-archiver/thumbnails/rebuild?mode=MISSING_ONLY&path=/immich/library"
+curl -X POST "http://localhost:8080/cloud-archiver/thumbnails/rebuild?mode=FAILED_ONLY&limit=100&concurrency=4"
 ```
 
 Available modes:
@@ -91,7 +91,7 @@ Thumbnail rebuilds process MongoDB pages sequentially, but can generate thumbnai
 
 Thumbnails are expendable local cache files, but they intentionally outlive the original local source file. When a source file is deleted locally, the MongoDB catalog entry can remain in a pending-deletion state until the configured retention window reaches EOL. During that period, Cloud Archiver keeps the thumbnail so restore-discovery views can still show a preview.
 
-When Cloud Archiver eventually deletes the archived cloud object and removes the MongoDB catalog record, it also attempts to delete the local thumbnail file referenced by `thumbnailPath`. Thumbnail creation and deletion are logged with the `[THUMBNAIL]` prefix, similar to the cloud file lifecycle logs.
+When Cloud Archiver eventually deletes the archived cloud object and removes the MongoDB catalog record, it also deletes the local thumbnail file referenced by `thumbnailPath`. The deletion happens at catalog EOL — not when the local file disappears from disk. Thumbnail creation and deletion are logged with the `[THUMBNAIL]` prefix, similar to the cloud file lifecycle logs.
 
 Deleting a local thumbnail file manually is safe. The catalog can rebuild it later if the original source file is still available.
 

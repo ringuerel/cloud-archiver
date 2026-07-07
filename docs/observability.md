@@ -2,7 +2,7 @@
 
 Cloud Archiver exposes metrics via [Micrometer](https://micrometer.io/) and publishes them in Prometheus format at `/cloud-archiver/actuator/prometheus`.
 
-Metrics are **reset at the start of each sync run** so they reflect the most recent execution.
+Sync metrics are reset at the start of each full sync run, but metric ownership now lives in a dedicated `CloudSyncMetricsService`. That keeps prototype-scoped sync services from double-registering meters while still giving each run a clean set of counters and timers.
 
 ---
 
@@ -10,8 +10,8 @@ Metrics are **reset at the start of each sync run** so they reflect the most rec
 
 | Metric name | Type | Description |
 |-------------|------|-------------|
-| `cloud_archiver_files_uploaded_total` | Counter | Files successfully uploaded to cloud |
-| `cloud_archiver_files_deleted_total` | Counter | Files deleted from cloud |
+| `cloud_archiver_files_uploaded_total` | Counter | Files successfully uploaded to cloud during the current sync run |
+| `cloud_archiver_files_deleted_total` | Counter | Files deleted from cloud during the current sync run |
 | `cloud_archiver_upload_duration_seconds` | Timer | Per-file upload duration |
 | `cloud_archiver_delete_duration_seconds` | Timer | Per-file delete duration |
 | `cloud_archiver_scan_duration_seconds` | Timer | Total duration of one location sync |
@@ -28,11 +28,14 @@ Metrics are **reset at the start of each sync run** so they reflect the most rec
 ```mermaid
 flowchart LR
     subgraph App["Cloud Archiver"]
-        SVC["FileCatalogServiceImpl"]
         TT["TimedTask"]
+        FCS["FileCatalogServiceImpl"]
+        METRICS["CloudSyncMetricsService"]
         REG["MeterRegistry\n(Micrometer)"]
-        SVC -->|"increment / record"| REG
-        TT -->|"increment"| REG
+        TT -->|"increment scheduled-task counter"| REG
+        FCS -->|"reset per-run metrics"| METRICS
+        FCS -->|"record upload/delete/download timing and counts"| METRICS
+        METRICS -->|"register/remove meters"| REG
     end
 
     subgraph Scrape["Prometheus Scrape"]
@@ -43,6 +46,25 @@ flowchart LR
     PROM["Prometheus Server"] -->|"scrape"| PROM_EP
     GRAFANA["Grafana"] -->|"query"| PROM
 ```
+
+---
+
+## Logging and MDC
+
+Cloud Archiver now uses a small MDC envelope for sync work:
+
+- `syncRunId`: stable ID for one `startAllLocationSyncs()` invocation
+- `scanLocation`: current scan folder while processing one location
+- `syncPhase`: coarse phase such as `sync`, `backup`, `cleanup`, `summary`, or `download`
+
+The context is opened at sync and download entrypoints, copied before `@Async` notification hops, and restored/cleared in `finally` blocks so stale values do not leak into later requests or scheduled runs.
+
+### Logging guidance
+
+- `INFO`: one line per high-level lifecycle event such as sync start, sync completion, backup completion, cleanup completion, and successful download
+- `DEBUG`: batch sizes, cache sizes, and per-file upload intent when diagnosing issues
+- `TRACE`: very noisy filtering/page-walk details only
+- Avoid per-item success logs inside parallel streams unless they materially help diagnosis
 
 ---
 
@@ -66,13 +88,8 @@ Returns Spring Boot's standard health response. Includes MongoDB connectivity st
 
 ---
 
-## Logging
+## Thread-Safety Notes
 
-Log levels are configured per package:
-
-| Logger | Default level | Description |
-|--------|--------------|-------------|
-| `root` | `INFO` | All other libraries |
-| `com.homelab.ringue` | `INFO` | Application code (`DEBUG` for verbose, `TRACE` for very noisy) |
-
-Set via `LOGGING_LEVEL_COM_HOMELAB_RINGUE=DEBUG` in Docker to see per-file upload/delete details.
+- `FileCatalogServiceImpl` remains prototype-scoped, but mutable counters are per-instance and reset per location.
+- Cleanup and metadata-save loops now use regular streams instead of `parallelStream()` to avoid racing Spring repositories and provider clients.
+- Async webhook notifications snapshot the current MDC envelope before the thread hop, restore it inside the async sender, and always clear the thread-local state afterward.
