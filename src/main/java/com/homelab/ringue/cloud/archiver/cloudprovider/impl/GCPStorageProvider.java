@@ -3,6 +3,7 @@ package com.homelab.ringue.cloud.archiver.cloudprovider.impl;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Optional;
 
@@ -70,8 +71,32 @@ public class GCPStorageProvider implements CloudProvider{
         if (cloudObjectName == null) {
             throw new IllegalArgumentException("cloudObjectName cannot be null");
         }
-        String normalized = cloudObjectName.replaceAll("\\\\", "/");
-        return java.nio.file.Paths.get(localRoot, normalized);
+        Path target = Paths.get(localRoot);
+        for (String segment : toRelativeCloudPath(cloudObjectName).split("/")) {
+            if (!segment.isBlank()) {
+                target = target.resolve(segment);
+            }
+        }
+        return target.normalize();
+    }
+
+    private String toRelativeCloudPath(String cloudObjectName) {
+        String normalized = cloudObjectName.replace('\\', '/');
+        normalized = normalized.replaceFirst("^([A-Za-z]):(?=/|$)", "$1");
+        normalized = normalized.replaceFirst("^/+", "");
+        normalized = normalized.replace(':', '_');
+
+        java.util.List<String> safeSegments = new java.util.ArrayList<>();
+        for (String segment : normalized.split("/")) {
+            if (segment.isBlank() || ".".equals(segment)) {
+                continue;
+            }
+            if ("..".equals(segment)) {
+                throw new IllegalArgumentException("cloudObjectName cannot contain parent directory segments");
+            }
+            safeSegments.add(segment);
+        }
+        return String.join("/", safeSegments);
     }
 
     private ApplicationProperties applicationProperties;
