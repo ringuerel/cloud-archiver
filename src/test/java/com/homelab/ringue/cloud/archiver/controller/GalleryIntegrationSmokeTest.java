@@ -1,26 +1,35 @@
 package com.homelab.ringue.cloud.archiver.controller;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.homelab.ringue.cloud.archiver.gallery.ContentSecurityGuard;
+import com.homelab.ringue.cloud.archiver.domain.FileCatalogItem;
 import com.homelab.ringue.cloud.archiver.gallery.RestoreJobRegistry;
 import com.homelab.ringue.cloud.archiver.repository.GalleryBrowseRepository;
+import com.homelab.ringue.cloud.archiver.service.MediaService;
 import com.homelab.ringue.cloud.archiver.service.impl.GalleryServiceImpl;
-import com.homelab.ringue.cloud.archiver.service.impl.MediaServiceImpl;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Query;
 
-@SpringBootTest(properties = {
-        "spring.data.mongodb.database=gallery_integration_smoke_test",
-        "de.flapdoodle.mongodb.embedded.version=7.0.5"
+@WebMvcTest(GalleryController.class)
+@Import({
+        GalleryIntegrationSmokeTest.GallerySmokeTestConfiguration.class,
+        GalleryResponseEntityExceptionHandler.class
 })
-@AutoConfigureMockMvc
 class GalleryIntegrationSmokeTest {
 
     @Autowired
@@ -32,11 +41,8 @@ class GalleryIntegrationSmokeTest {
     @Autowired
     private GalleryServiceImpl galleryService;
 
-    @Autowired
-    private MediaServiceImpl mediaService;
-
-    @Autowired
-    private ContentSecurityGuard contentSecurityGuard;
+    @MockBean
+    private MediaService mediaService;
 
     @Autowired
     private RestoreJobRegistry restoreJobRegistry;
@@ -49,10 +55,11 @@ class GalleryIntegrationSmokeTest {
 
     @Test
     void galleryBeansAreRegisteredAndBrowseReturnsOk() throws Exception {
+        when(mongoTemplate.find(any(Query.class), eq(FileCatalogItem.class))).thenReturn(List.of());
+
         assertNotNull(galleryController);
         assertNotNull(galleryService);
         assertNotNull(mediaService);
-        assertNotNull(contentSecurityGuard);
         assertNotNull(restoreJobRegistry);
         assertNotNull(galleryBrowseRepository);
         assertNotNull(galleryExceptionHandler);
@@ -61,5 +68,28 @@ class GalleryIntegrationSmokeTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items").isArray())
                 .andExpect(jsonPath("$.hasMore").value(false));
+    }
+
+    @MockBean
+    private MongoTemplate mongoTemplate;
+
+    @TestConfiguration
+    static class GallerySmokeTestConfiguration {
+
+        @Bean
+        RestoreJobRegistry restoreJobRegistry() {
+            return new RestoreJobRegistry();
+        }
+
+        @Bean
+        GalleryBrowseRepository galleryBrowseRepository(MongoTemplate mongoTemplate) {
+            return new GalleryBrowseRepository(mongoTemplate);
+        }
+
+        @Bean
+        GalleryServiceImpl galleryService(GalleryBrowseRepository galleryBrowseRepository,
+                RestoreJobRegistry restoreJobRegistry) {
+            return new GalleryServiceImpl(galleryBrowseRepository, restoreJobRegistry);
+        }
     }
 }

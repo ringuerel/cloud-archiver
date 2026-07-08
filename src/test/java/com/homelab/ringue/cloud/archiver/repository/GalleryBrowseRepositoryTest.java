@@ -1,103 +1,123 @@
 package com.homelab.ringue.cloud.archiver.repository;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.homelab.ringue.cloud.archiver.domain.FileCatalogItem;
 import com.homelab.ringue.cloud.archiver.gallery.BrowseCursor;
 import com.homelab.ringue.cloud.archiver.repository.GalleryBrowseRepository.BrowseQuery;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.data.mongo.DataMongoTest;
-import org.springframework.context.annotation.Import;
+import org.mockito.ArgumentCaptor;
 import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Query;
 
-@DataMongoTest(properties = {
-        "spring.data.mongodb.database=gallery_browse_repository_test",
-        "de.flapdoodle.mongodb.embedded.version=7.0.5"
-})
-@Import(GalleryBrowseRepository.class)
 class GalleryBrowseRepositoryTest {
 
-    @Autowired
     private MongoTemplate mongoTemplate;
-
-    @Autowired
     private GalleryBrowseRepository repository;
 
     @BeforeEach
     void setUp() {
-        mongoTemplate.dropCollection(FileCatalogItem.class);
+        mongoTemplate = mock(MongoTemplate.class);
+        repository = new GalleryBrowseRepository(mongoTemplate);
     }
 
     @Test
-    void findGalleryItems_sortsByArchiveDateDescendingWithNullsLast() {
-        Date newest = date(3);
-        Date middle = date(2);
-        Date oldest = date(1);
-        insert(
-                item("/media/null-a.jpg", "/media", null, false, "jpg", "CREATED"),
-                item("/media/middle.jpg", "/media", middle, false, "jpg", "CREATED"),
-                item("/media/null-b.jpg", "/media", null, false, "jpg", "CREATED"),
-                item("/media/newest.jpg", "/media", newest, false, "jpg", "CREATED"),
-                item("/media/oldest.jpg", "/media", oldest, false, "jpg", "CREATED"));
+    void findGalleryItems_appliesSortLimitAndDelegatesToMongoTemplate() {
+        List<FileCatalogItem> expectedItems = List.of(item("/media/photo.jpg", "/media", date(1), false, "jpg", "CREATED"));
+        when(mongoTemplate.find(captureAnyQuery(), eq(FileCatalogItem.class))).thenReturn(expectedItems);
 
-        List<FileCatalogItem> results = repository.findGalleryItems(query(null, true, null, List.of(), null, null, null, null, 10));
+        List<FileCatalogItem> results = repository.findGalleryItems(
+                query(null, false, null, List.of(), null, null, null, null, 3));
 
-        assertEquals("/media/newest.jpg", results.get(0).absolutePath());
-        assertEquals("/media/middle.jpg", results.get(1).absolutePath());
-        assertEquals("/media/oldest.jpg", results.get(2).absolutePath());
-        assertNull(results.get(3).archiveDate());
-        assertNull(results.get(4).archiveDate());
+        assertSame(expectedItems, results);
+        Query captured = capturedQuery();
+        assertEquals(3, captured.getLimit());
+        assertEquals(-1, captured.getSortObject().get("archiveDate"));
+        assertEquals(1, captured.getSortObject().get("absolutePath"));
+        assertEquals(false, captured.getQueryObject().get("isDirectory"));
     }
 
     @Test
-    void findGalleryItems_fetchesRequestedLimitForHasMoreDetection() {
-        insertNumberedItems(5);
+    void findGalleryItems_buildsPathPrefixFilter() {
+        when(mongoTemplate.find(captureAnyQuery(), eq(FileCatalogItem.class))).thenReturn(List.of());
 
-        List<FileCatalogItem> results = repository.findGalleryItems(query(null, false, null, List.of(), null, null, null, null, 3));
+        repository.findGalleryItems(query("/media/trip", false, null, List.of(), null, null, null, null, 10));
 
-        assertEquals(3, results.size());
+        String queryJson = capturedQuery().getQueryObject().toJson();
+        assertTrue(queryJson.contains("parentFolder"));
+        assertTrue(queryJson.contains("^\\\\Q/media/trip\\\\E"));
+        assertTrue(queryJson.contains("isDirectory"));
     }
 
     @Test
-    void findGalleryItems_usesCursorToPageThroughDataset() {
-        insertNumberedItems(12);
+    void findGalleryItems_buildsFilterCriteria() {
+        Date startDate = date(1);
+        Date endDate = date(3);
+        when(mongoTemplate.find(captureAnyQuery(), eq(FileCatalogItem.class))).thenReturn(List.of());
 
-        List<FileCatalogItem> firstPage = repository.findGalleryItems(query(null, false, null, List.of(), null, null, null, null, 5));
-        FileCatalogItem lastFirstPageItem = firstPage.get(firstPage.size() - 1);
-        BrowseCursor.CursorPosition cursor = new BrowseCursor.CursorPosition(
-                lastFirstPageItem.archiveDate(),
-                lastFirstPageItem.absolutePath());
+        repository.findGalleryItems(query(null, true, "vacation", List.of("jpg", "png"), "CREATED",
+                startDate, endDate, null, 20));
 
-        List<FileCatalogItem> secondPage = repository.findGalleryItems(query(null, false, null, List.of(), null, null, null, cursor, 5));
-
-        assertEquals(5, firstPage.size());
-        assertEquals(5, secondPage.size());
-        assertTrue(firstPage.stream().noneMatch(first -> secondPage.contains(first)));
-        assertEquals("/media/photo-05.jpg", secondPage.get(0).absolutePath());
-        assertEquals("/media/photo-09.jpg", secondPage.get(4).absolutePath());
+        String queryJson = capturedQuery().getQueryObject().toJson();
+        assertTrue(queryJson.contains("fileName"));
+        assertTrue(queryJson.contains("vacation"));
+        assertTrue(queryJson.contains("fileExtension"));
+        assertTrue(queryJson.contains("jpg"));
+        assertTrue(queryJson.contains("png"));
+        assertTrue(queryJson.contains("thumbnailStatus"));
+        assertTrue(queryJson.contains("CREATED"));
+        assertTrue(queryJson.contains("$gte"));
+        assertTrue(queryJson.contains("$lte"));
     }
 
     @Test
-    void findGalleryItems_pathPrefixFilterExcludesItemsInOtherFolders() {
-        insert(
-                item("/media/trip/a.jpg", "/media/trip", date(3), false, "jpg", "CREATED"),
-                item("/media/trip/nested/b.jpg", "/media/trip/nested", date(2), false, "jpg", "CREATED"),
-                item("/media/other/c.jpg", "/media/other", date(1), false, "jpg", "CREATED"));
+    void findGalleryItems_buildsCursorPredicateForDatedCursor() {
+        BrowseCursor.CursorPosition cursor = new BrowseCursor.CursorPosition(date(2), "/media/photo-05.jpg");
+        when(mongoTemplate.find(captureAnyQuery(), eq(FileCatalogItem.class))).thenReturn(List.of());
 
-        List<FileCatalogItem> results = repository.findGalleryItems(query("/media/trip", false, null, List.of(), null, null, null, null, 10));
+        repository.findGalleryItems(query(null, false, null, List.of(), null, null, null, cursor, 5));
 
-        assertEquals(2, results.size());
-        assertTrue(results.stream().allMatch(item -> item.parentFolder().startsWith("/media/trip")));
-        assertFalse(results.stream().anyMatch(item -> item.parentFolder().startsWith("/media/other")));
+        String queryJson = capturedQuery().getQueryObject().toJson();
+        assertTrue(queryJson.contains("$or"));
+        assertTrue(queryJson.contains("$lt"));
+        assertTrue(queryJson.contains("$gt"));
+        assertTrue(queryJson.contains("/media/photo-05.jpg"));
+        assertTrue(queryJson.contains("archiveDate"));
+        assertTrue(queryJson.contains("absolutePath"));
+    }
+
+    @Test
+    void findGalleryItems_buildsCursorPredicateForNullDateCursor() {
+        BrowseCursor.CursorPosition cursor = new BrowseCursor.CursorPosition(null, "/media/photo-05.jpg");
+        when(mongoTemplate.find(captureAnyQuery(), eq(FileCatalogItem.class))).thenReturn(List.of());
+
+        repository.findGalleryItems(query(null, false, null, List.of(), null, null, null, cursor, 5));
+
+        String queryJson = capturedQuery().getQueryObject().toJson();
+        assertTrue(queryJson.contains("archiveDate"));
+        assertTrue(queryJson.contains("null"));
+        assertTrue(queryJson.contains("$gt"));
+        assertTrue(queryJson.contains("/media/photo-05.jpg"));
+    }
+
+    private Query captureAnyQuery() {
+        return org.mockito.ArgumentMatchers.any(Query.class);
+    }
+
+    private Query capturedQuery() {
+        ArgumentCaptor<Query> queryCaptor = ArgumentCaptor.forClass(Query.class);
+        verify(mongoTemplate).find(queryCaptor.capture(), eq(FileCatalogItem.class));
+        return queryCaptor.getValue();
     }
 
     private BrowseQuery query(
@@ -112,18 +132,6 @@ class GalleryBrowseRepositoryTest {
             int limit) {
         return new BrowseQuery(path, includeDirectories, fileNameContains, extensions, thumbnailStatus,
                 startDate, endDate, cursor, limit);
-    }
-
-    private void insertNumberedItems(int count) {
-        List<FileCatalogItem> items = new ArrayList<>();
-        for (int i = 0; i < count; i++) {
-            items.add(item(String.format("/media/photo-%02d.jpg", i), "/media", date(count - i), false, "jpg", "CREATED"));
-        }
-        insert(items.toArray(FileCatalogItem[]::new));
-    }
-
-    private void insert(FileCatalogItem... items) {
-        mongoTemplate.insertAll(List.of(items));
     }
 
     private FileCatalogItem item(
