@@ -18,7 +18,6 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
 @RestController
 @RequestMapping("file-catalog")
@@ -50,7 +49,7 @@ public class GalleryController {
     }
 
     @GetMapping("/media/thumbnail")
-    public ResponseEntity<StreamingResponseBody> streamThumbnail(
+    public ResponseEntity<?> streamThumbnail(
             @RequestParam String path,
             @RequestHeader(value = HttpHeaders.IF_NONE_MATCH, required = false) String ifNoneMatch) {
         return mediaService.streamThumbnail(path, ifNoneMatch);

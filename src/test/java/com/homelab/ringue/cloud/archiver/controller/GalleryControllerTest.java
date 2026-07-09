@@ -24,6 +24,7 @@ import com.homelab.ringue.cloud.archiver.service.MediaService;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
@@ -31,7 +32,6 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
 @WebMvcTest(GalleryController.class)
 class GalleryControllerTest {
@@ -62,17 +62,16 @@ class GalleryControllerTest {
 
     @Test
     void thumbnail_delegatesAndReturnsServiceStatusAndHeaders() throws Exception {
-        StreamingResponseBody body = outputStream -> outputStream.write("thumb".getBytes());
-        when(mediaService.streamThumbnail(eq("/media/photo.jpg"), eq("\"1-2\"")))
-                .thenReturn(ResponseEntity.ok()
-                        .header(HttpHeaders.ETAG, "\"1-2\"")
-                        .body(body));
+        ResponseEntity<?> response = ResponseEntity.ok()
+                .header(HttpHeaders.ETAG, "\"2-3\"")
+                .body(new ByteArrayResource("thumb".getBytes()));
+        doReturn(response).when(mediaService).streamThumbnail(eq("/media/photo.jpg"), eq("\"1-2\""));
 
         mockMvc.perform(get("/file-catalog/media/thumbnail")
                         .param("path", "/media/photo.jpg")
                         .header(HttpHeaders.IF_NONE_MATCH, "\"1-2\""))
                 .andExpect(status().isOk())
-                .andExpect(header().string(HttpHeaders.ETAG, "\"1-2\""));
+                .andExpect(header().string(HttpHeaders.ETAG, "\"2-3\""));
     }
 
     @Test

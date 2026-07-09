@@ -30,6 +30,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.io.FileSystemResource;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -37,7 +38,6 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
-import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
 @Slf4j
 @Service
@@ -66,7 +66,7 @@ public class MediaServiceImpl implements MediaService {
     }
 
     @Override
-    public ResponseEntity<StreamingResponseBody> streamThumbnail(String absolutePath, String ifNoneMatch) {
+    public ResponseEntity<?> streamThumbnail(String absolutePath, String ifNoneMatch) {
         FileCatalogItem item = findItem(absolutePath, "THUMBNAIL_NOT_FOUND");
         if (ThumbnailStatus.FAILED.name().equals(item.thumbnailStatus())) {
             throw new ThumbnailFailedException(item.thumbnailError());
@@ -195,7 +195,7 @@ public class MediaServiceImpl implements MediaService {
         return new RestoreResponse("QUEUED", job.jobId(), absolutePath, null, downloadRoot);
     }
 
-    private ResponseEntity<StreamingResponseBody> streamFile(
+    private ResponseEntity<?> streamFile(
             Path resolvedPath,
             String contentType,
             String cacheControl,
@@ -207,9 +207,9 @@ public class MediaServiceImpl implements MediaService {
             HttpHeaders headers = new HttpHeaders();
             headers.set(HttpHeaders.ETAG, etag);
             headers.set(HttpHeaders.CACHE_CONTROL, cacheControl);
+            headers.setContentLength(attributes.size());
             if (contentDisposition != null) {
                 headers.setContentDisposition(contentDisposition);
-                headers.setContentLength(attributes.size());
             }
 
             if (etag.equals(ifNoneMatch)) {
@@ -218,12 +218,7 @@ public class MediaServiceImpl implements MediaService {
 
             headers.setContentType(MediaType.parseMediaType(
                     StringUtils.hasText(contentType) ? contentType : MediaType.APPLICATION_OCTET_STREAM_VALUE));
-            StreamingResponseBody body = outputStream -> {
-                try (var inputStream = Files.newInputStream(resolvedPath)) {
-                    inputStream.transferTo(outputStream);
-                }
-            };
-            return new ResponseEntity<>(body, headers, HttpStatus.OK);
+            return new ResponseEntity<>(new FileSystemResource(resolvedPath), headers, HttpStatus.OK);
         } catch (IOException e) {
             throw new GalleryItemNotFoundException("MEDIA_NOT_FOUND", resolvedPath.toString());
         }
