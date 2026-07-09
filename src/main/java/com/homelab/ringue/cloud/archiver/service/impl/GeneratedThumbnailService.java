@@ -201,8 +201,10 @@ public class GeneratedThumbnailService implements ThumbnailService {
         command.add(sourcePath.toString());
         command.add("-frames:v");
         command.add("1");
-        command.add("-vf");
-        command.add(scaleFilter(config.getMaxWidth(), config.getMaxHeight()));
+        command.add("-filter_complex");
+        command.add("[0:v]" + scaleFilter(config.getMaxWidth(), config.getMaxHeight()) + "[thumb]");
+        command.add("-map");
+        command.add("[thumb]");
         command.add(thumbnailPath.toString());
         return command;
     }
