@@ -7,15 +7,14 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.awt.Color;
-import java.awt.Graphics2D;
-import java.awt.image.BufferedImage;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
-
-import javax.imageio.ImageIO;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -25,6 +24,7 @@ import com.homelab.ringue.cloud.archiver.config.ApplicationProperties.ScanLocati
 import com.homelab.ringue.cloud.archiver.config.ApplicationProperties.ThumbnailsConfig;
 import com.homelab.ringue.cloud.archiver.domain.FileCatalogItem;
 import com.homelab.ringue.cloud.archiver.domain.ThumbnailStatus;
+import com.homelab.ringue.cloud.archiver.service.ThumbnailProcessRunner;
 
 class GeneratedThumbnailServiceTest {
 
@@ -34,23 +34,22 @@ class GeneratedThumbnailServiceTest {
     @Test
     void createOrUpdateThumbnail_whenDisabled_returnsOriginalItem() throws Exception {
         ApplicationProperties properties = properties(false);
-        FileCatalogItem item = catalogItem(writeImage("photo.jpg"));
-        GeneratedThumbnailService service = new GeneratedThumbnailService(
-                properties,
-                new FileCatalogItemMapperImpl());
+        FileCatalogItem item = catalogItem(writeSource("photo.jpg"), "jpg");
+        FakeThumbnailProcessRunner runner = new FakeThumbnailProcessRunner();
+        GeneratedThumbnailService service = service(properties, runner);
 
         FileCatalogItem result = service.createOrUpdateThumbnail(item, false);
 
         assertSame(item, result);
+        assertTrue(runner.commands.isEmpty());
     }
 
     @Test
-    void createOrUpdateThumbnail_forImage_uploadsThumbnailAndUpdatesCatalogMetadata() throws Exception {
+    void createOrUpdateThumbnail_forImage_invokesFfmpegAndUpdatesCatalogMetadata() throws Exception {
         ApplicationProperties properties = properties(true);
-        FileCatalogItem item = catalogItem(writeImage("photo.jpg"));
-        GeneratedThumbnailService service = new GeneratedThumbnailService(
-                properties,
-                new FileCatalogItemMapperImpl());
+        FileCatalogItem item = catalogItem(writeSource("photo.jpg"), "jpg");
+        FakeThumbnailProcessRunner runner = new FakeThumbnailProcessRunner();
+        GeneratedThumbnailService service = service(properties, runner);
 
         FileCatalogItem result = service.createOrUpdateThumbnail(item, false);
 
@@ -60,7 +59,44 @@ class GeneratedThumbnailServiceTest {
         assertNotNull(result.thumbnailCreatedAt());
         assertNull(result.thumbnailError());
         assertTrue(result.thumbnailPath().startsWith(tempDir.resolve("thumbs").toString()));
-        assertTrue(java.nio.file.Files.isRegularFile(Path.of(result.thumbnailPath())));
+        assertTrue(Files.isRegularFile(Path.of(result.thumbnailPath())));
+        assertEquals(1, runner.commands.size());
+        assertEquals("ffmpeg", runner.commands.get(0).get(0));
+        assertTrue(runner.commands.get(0).contains(item.absolutePath()));
+    }
+
+    @Test
+    void createOrUpdateThumbnail_forHeic_invokesHeifConvertThenFfmpeg() throws Exception {
+        ApplicationProperties properties = properties(true);
+        FileCatalogItem item = catalogItem(writeSource("photo.heic"), "heic");
+        FakeThumbnailProcessRunner runner = new FakeThumbnailProcessRunner();
+        GeneratedThumbnailService service = service(properties, runner);
+
+        FileCatalogItem result = service.createOrUpdateThumbnail(item, false);
+
+        assertEquals(ThumbnailStatus.CREATED.name(), result.thumbnailStatus());
+        assertTrue(Files.isRegularFile(Path.of(result.thumbnailPath())));
+        assertEquals(2, runner.commands.size());
+        assertEquals("heif-convert", runner.commands.get(0).get(0));
+        assertEquals(item.absolutePath(), runner.commands.get(0).get(1));
+        assertEquals("ffmpeg", runner.commands.get(1).get(0));
+    }
+
+    @Test
+    void createOrUpdateThumbnail_forVideo_invokesFfmpegFrameExtraction() throws Exception {
+        ApplicationProperties properties = properties(true);
+        FileCatalogItem item = catalogItem(writeSource("clip.mov"), "mov");
+        FakeThumbnailProcessRunner runner = new FakeThumbnailProcessRunner();
+        GeneratedThumbnailService service = service(properties, runner);
+
+        FileCatalogItem result = service.createOrUpdateThumbnail(item, false);
+
+        assertEquals(ThumbnailStatus.CREATED.name(), result.thumbnailStatus());
+        List<String> command = runner.commands.get(0);
+        assertEquals("ffmpeg", command.get(0));
+        assertTrue(command.contains("-ss"));
+        assertTrue(command.contains("3"));
+        assertTrue(command.contains(item.absolutePath()));
     }
 
     @Test
@@ -71,33 +107,20 @@ class GeneratedThumbnailServiceTest {
         locationConfig.setScanFolder(tempDir.toString());
         locationConfig.setThumbnailRoot(locationThumbRoot.toString());
         properties.setScanFolders(List.of(locationConfig));
-        FileCatalogItem item = catalogItem(writeImage("photo.jpg"));
-        GeneratedThumbnailService service = new GeneratedThumbnailService(
-                properties,
-                new FileCatalogItemMapperImpl());
+        FileCatalogItem item = catalogItem(writeSource("photo.webp"), "webp");
+        GeneratedThumbnailService service = service(properties, new FakeThumbnailProcessRunner());
 
         FileCatalogItem result = service.createOrUpdateThumbnail(item, false);
 
         assertTrue(result.thumbnailPath().startsWith(locationThumbRoot.toString()));
-        assertTrue(java.nio.file.Files.isRegularFile(Path.of(result.thumbnailPath())));
+        assertTrue(Files.isRegularFile(Path.of(result.thumbnailPath())));
     }
 
     @Test
     void createOrUpdateThumbnail_forUnsupportedFile_marksSkippedWithoutPath() throws Exception {
         ApplicationProperties properties = properties(true);
-        FileCatalogItem item = new FileCatalogItem(
-                tempDir.resolve("notes.txt").toString(),
-                "notes.txt",
-                "txt",
-                tempDir.toString(),
-                false,
-                10L,
-                new Date(),
-                "crc",
-                Instant.now());
-        GeneratedThumbnailService service = new GeneratedThumbnailService(
-                properties,
-                new FileCatalogItemMapperImpl());
+        FileCatalogItem item = catalogItem(writeSource("notes.txt"), "txt");
+        GeneratedThumbnailService service = service(properties, new FakeThumbnailProcessRunner());
 
         FileCatalogItem result = service.createOrUpdateThumbnail(item, false);
 
@@ -106,33 +129,110 @@ class GeneratedThumbnailServiceTest {
     }
 
     @Test
+    void createOrUpdateThumbnail_whenCommandFails_marksFailedWithoutThrowing() throws Exception {
+        ApplicationProperties properties = properties(true);
+        FileCatalogItem item = catalogItem(writeSource("photo.jpg"), "jpg");
+        FakeThumbnailProcessRunner runner = new FakeThumbnailProcessRunner();
+        runner.result = new ThumbnailProcessRunner.ProcessResult(1, "decode failed");
+        GeneratedThumbnailService service = service(properties, runner);
+
+        FileCatalogItem result = service.createOrUpdateThumbnail(item, false);
+
+        assertNull(result.thumbnailPath());
+        assertEquals(ThumbnailStatus.FAILED.name(), result.thumbnailStatus());
+        assertTrue(result.thumbnailError().contains("decode failed"));
+    }
+
+    @Test
+    void createOrUpdateThumbnail_whenCommandIsInterrupted_marksFailedAndRestoresInterrupt() throws Exception {
+        ApplicationProperties properties = properties(true);
+        FileCatalogItem item = catalogItem(writeSource("photo.jpg"), "jpg");
+        FakeThumbnailProcessRunner runner = new FakeThumbnailProcessRunner();
+        runner.interrupt = true;
+        GeneratedThumbnailService service = service(properties, runner);
+
+        FileCatalogItem result = service.createOrUpdateThumbnail(item, false);
+
+        assertEquals(ThumbnailStatus.FAILED.name(), result.thumbnailStatus());
+        assertEquals("Thumbnail generation was interrupted", result.thumbnailError());
+        assertTrue(Thread.currentThread().isInterrupted());
+        Thread.interrupted();
+    }
+
+    @Test
+    void createOrUpdateThumbnail_whenSourceMissing_marksFailed() throws Exception {
+        ApplicationProperties properties = properties(true);
+        Path missingSource = tempDir.resolve("missing.mp4");
+        FileCatalogItem item = catalogItem(missingSource, "mp4");
+        FakeThumbnailProcessRunner runner = new FakeThumbnailProcessRunner();
+        GeneratedThumbnailService service = service(properties, runner);
+
+        FileCatalogItem result = service.createOrUpdateThumbnail(item, false);
+
+        assertEquals(ThumbnailStatus.FAILED.name(), result.thumbnailStatus());
+        assertEquals("Source file is not available on disk", result.thumbnailError());
+        assertTrue(runner.commands.isEmpty());
+    }
+
+    @Test
+    void createOrUpdateThumbnail_whenExistingThumbnailAndNotForced_skipsCommand() throws Exception {
+        ApplicationProperties properties = properties(true);
+        Path thumbnailPath = tempDir.resolve("thumbs").resolve("photo.jpg");
+        FileCatalogItem item = catalogItemWithThumbnail(writeSource("photo.jpg"), thumbnailPath);
+        FakeThumbnailProcessRunner runner = new FakeThumbnailProcessRunner();
+        GeneratedThumbnailService service = service(properties, runner);
+
+        FileCatalogItem result = service.createOrUpdateThumbnail(item, false);
+
+        assertSame(item, result);
+        assertTrue(runner.commands.isEmpty());
+    }
+
+    @Test
+    void createOrUpdateThumbnail_whenExistingThumbnailAndForced_regenerates() throws Exception {
+        ApplicationProperties properties = properties(true);
+        Path thumbnailPath = tempDir.resolve("thumbs").resolve("photo.jpg");
+        FileCatalogItem item = catalogItemWithThumbnail(writeSource("photo.jpg"), thumbnailPath);
+        FakeThumbnailProcessRunner runner = new FakeThumbnailProcessRunner();
+        GeneratedThumbnailService service = service(properties, runner);
+
+        FileCatalogItem result = service.createOrUpdateThumbnail(item, true);
+
+        assertEquals(ThumbnailStatus.CREATED.name(), result.thumbnailStatus());
+        assertEquals(1, runner.commands.size());
+    }
+
+    @Test
     void deleteThumbnail_removesLocalThumbnailAtCatalogEol() throws Exception {
         ApplicationProperties properties = properties(true);
         Path thumbnailPath = tempDir.resolve("thumbs").resolve("photo.jpg");
-        java.nio.file.Files.createDirectories(thumbnailPath.getParent());
-        java.nio.file.Files.writeString(thumbnailPath, "thumbnail");
-        FileCatalogItem item = catalogItemWithThumbnail(writeImage("photo.jpg"), thumbnailPath);
-        GeneratedThumbnailService service = new GeneratedThumbnailService(
-                properties,
-                new FileCatalogItemMapperImpl());
+        Files.createDirectories(thumbnailPath.getParent());
+        Files.writeString(thumbnailPath, "thumbnail");
+        FileCatalogItem item = catalogItemWithThumbnail(writeSource("photo.jpg"), thumbnailPath);
+        GeneratedThumbnailService service = service(properties, new FakeThumbnailProcessRunner());
 
         service.deleteThumbnail(item);
 
-        assertFalse(java.nio.file.Files.exists(thumbnailPath));
+        assertFalse(Files.exists(thumbnailPath));
     }
 
     @Test
     void deleteThumbnail_whenThumbnailFileIsAlreadyAbsent_doesNotFail() throws Exception {
         ApplicationProperties properties = properties(true);
         Path thumbnailPath = tempDir.resolve("thumbs").resolve("missing.jpg");
-        FileCatalogItem item = catalogItemWithThumbnail(writeImage("photo.jpg"), thumbnailPath);
-        GeneratedThumbnailService service = new GeneratedThumbnailService(
-                properties,
-                new FileCatalogItemMapperImpl());
+        FileCatalogItem item = catalogItemWithThumbnail(writeSource("photo.jpg"), thumbnailPath);
+        GeneratedThumbnailService service = service(properties, new FakeThumbnailProcessRunner());
 
         service.deleteThumbnail(item);
 
-        assertFalse(java.nio.file.Files.exists(thumbnailPath));
+        assertFalse(Files.exists(thumbnailPath));
+    }
+
+    private GeneratedThumbnailService service(ApplicationProperties properties, ThumbnailProcessRunner runner) {
+        return new GeneratedThumbnailService(
+                properties,
+                new FileCatalogItemMapperImpl(),
+                runner);
     }
 
     private ApplicationProperties properties(boolean thumbnailsEnabled) {
@@ -148,21 +248,21 @@ class GeneratedThumbnailServiceTest {
         return properties;
     }
 
-    private FileCatalogItem catalogItem(Path imagePath) throws Exception {
+    private FileCatalogItem catalogItem(Path sourcePath, String extension) throws Exception {
         return new FileCatalogItem(
-                imagePath.toString(),
-                imagePath.getFileName().toString(),
-                "jpg",
-                imagePath.getParent().toString(),
+                sourcePath.toString(),
+                sourcePath.getFileName().toString(),
+                extension,
+                sourcePath.getParent().toString(),
                 false,
-                java.nio.file.Files.size(imagePath),
+                Files.exists(sourcePath) ? Files.size(sourcePath) : 10L,
                 new Date(),
                 "crc",
                 Instant.now());
     }
 
-    private FileCatalogItem catalogItemWithThumbnail(Path imagePath, Path thumbnailPath) throws Exception {
-        FileCatalogItem item = catalogItem(imagePath);
+    private FileCatalogItem catalogItemWithThumbnail(Path sourcePath, Path thumbnailPath) throws Exception {
+        FileCatalogItem item = catalogItem(sourcePath, "jpg");
         return new FileCatalogItem(
                 item.absolutePath(),
                 item.fileName(),
@@ -181,17 +281,29 @@ class GeneratedThumbnailServiceTest {
                 null);
     }
 
-    private Path writeImage(String fileName) throws Exception {
-        Path imagePath = tempDir.resolve(fileName);
-        BufferedImage image = new BufferedImage(100, 50, BufferedImage.TYPE_INT_RGB);
-        Graphics2D graphics = image.createGraphics();
-        try {
-            graphics.setColor(Color.BLUE);
-            graphics.fillRect(0, 0, image.getWidth(), image.getHeight());
-        } finally {
-            graphics.dispose();
+    private Path writeSource(String fileName) throws Exception {
+        Path sourcePath = tempDir.resolve(fileName);
+        Files.writeString(sourcePath, "source");
+        return sourcePath;
+    }
+
+    private static class FakeThumbnailProcessRunner implements ThumbnailProcessRunner {
+        private final List<List<String>> commands = new ArrayList<>();
+        private ProcessResult result = new ProcessResult(0, "");
+        private boolean interrupt;
+
+        @Override
+        public ProcessResult run(List<String> command, Duration timeout) throws IOException, InterruptedException {
+            commands.add(command);
+            if (interrupt) {
+                throw new InterruptedException("interrupted");
+            }
+            if (result.exitCode() == 0) {
+                Path outputPath = Path.of(command.get(command.size() - 1));
+                Files.createDirectories(outputPath.getParent());
+                Files.writeString(outputPath, "thumbnail");
+            }
+            return result;
         }
-        ImageIO.write(image, "jpg", imagePath.toFile());
-        return imagePath;
     }
 }

@@ -1,9 +1,5 @@
 package com.homelab.ringue.cloud.archiver.service.impl;
 
-import java.awt.Graphics2D;
-import java.awt.Image;
-import java.awt.RenderingHints;
-import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -11,14 +7,14 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
-
-import javax.imageio.ImageIO;
 
 import org.springframework.stereotype.Service;
 
@@ -27,6 +23,7 @@ import com.homelab.ringue.cloud.archiver.config.ApplicationProperties.ScanLocati
 import com.homelab.ringue.cloud.archiver.domain.FileCatalogItem;
 import com.homelab.ringue.cloud.archiver.domain.ThumbnailStatus;
 import com.homelab.ringue.cloud.archiver.service.FileCatalogItemMapper;
+import com.homelab.ringue.cloud.archiver.service.ThumbnailProcessRunner;
 import com.homelab.ringue.cloud.archiver.service.ThumbnailService;
 
 import lombok.extern.slf4j.Slf4j;
@@ -36,16 +33,22 @@ import lombok.extern.slf4j.Slf4j;
 public class GeneratedThumbnailService implements ThumbnailService {
 
     private static final String PROVIDER = "GENERATED";
-    private static final Set<String> SUPPORTED_IMAGE_EXTENSIONS = Set.of("jpg", "jpeg", "png", "gif", "bmp");
+    private static final int DEFAULT_VIDEO_CAPTURE_AT_SECONDS = 3;
+    private static final Set<String> SUPPORTED_IMAGE_EXTENSIONS = Set.of("jpg", "jpeg", "png", "gif", "bmp", "webp");
+    private static final Set<String> SUPPORTED_HEIC_EXTENSIONS = Set.of("heic", "heif");
+    private static final Set<String> SUPPORTED_VIDEO_EXTENSIONS = Set.of("mp4", "mov", "m4v");
 
     private final ApplicationProperties applicationProperties;
     private final FileCatalogItemMapper fileCatalogItemMapper;
+    private final ThumbnailProcessRunner thumbnailProcessRunner;
 
     public GeneratedThumbnailService(
             ApplicationProperties applicationProperties,
-            FileCatalogItemMapper fileCatalogItemMapper) {
+            FileCatalogItemMapper fileCatalogItemMapper,
+            ThumbnailProcessRunner thumbnailProcessRunner) {
         this.applicationProperties = applicationProperties;
         this.fileCatalogItemMapper = fileCatalogItemMapper;
+        this.thumbnailProcessRunner = thumbnailProcessRunner;
     }
 
     @Override
@@ -57,7 +60,8 @@ public class GeneratedThumbnailService implements ThumbnailService {
         if (!force && hasThumbnail(fileCatalogItem)) {
             return fileCatalogItem;
         }
-        if (!isSupportedImage(fileCatalogItem)) {
+        MediaType mediaType = mediaType(fileCatalogItem);
+        if (mediaType == MediaType.UNSUPPORTED) {
             return markSkipped(fileCatalogItem, "Unsupported media type for generated thumbnails");
         }
 
@@ -70,7 +74,7 @@ public class GeneratedThumbnailService implements ThumbnailService {
             Path thumbnailPath = buildThumbnailPath(fileCatalogItem, config);
             long startTime = System.nanoTime();
             Files.createDirectories(thumbnailPath.getParent());
-            createThumbnailFile(sourcePath, thumbnailPath, config.getMaxWidth(), config.getMaxHeight(), config.getOutputFormat());
+            createThumbnailFile(sourcePath, thumbnailPath, config, mediaType);
             long durationMs = (System.nanoTime() - startTime) / 1_000_000;
             long thumbnailSize = Files.size(thumbnailPath);
             log.info("[THUMBNAIL] Created {} ({} bytes) for {} in {} ms",
@@ -83,6 +87,10 @@ public class GeneratedThumbnailService implements ThumbnailService {
                     Instant.now(),
                     ThumbnailStatus.CREATED.name(),
                     null);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("Interrupted creating thumbnail for {}", fileCatalogItem.absolutePath(), e);
+            return markFailed(fileCatalogItem, "Thumbnail generation was interrupted");
         } catch (Exception e) {
             log.warn("Failed creating thumbnail for {}", fileCatalogItem.absolutePath(), e);
             return markFailed(fileCatalogItem, e.getMessage());
@@ -110,11 +118,21 @@ public class GeneratedThumbnailService implements ThumbnailService {
         return fileCatalogItem.thumbnailPath() != null && !fileCatalogItem.thumbnailPath().isBlank();
     }
 
-    private boolean isSupportedImage(FileCatalogItem fileCatalogItem) {
+    private MediaType mediaType(FileCatalogItem fileCatalogItem) {
         if (fileCatalogItem.isDirectory() || fileCatalogItem.fileExtension() == null) {
-            return false;
+            return MediaType.UNSUPPORTED;
         }
-        return SUPPORTED_IMAGE_EXTENSIONS.contains(fileCatalogItem.fileExtension().toLowerCase(Locale.ROOT));
+        String extension = fileCatalogItem.fileExtension().toLowerCase(Locale.ROOT);
+        if (SUPPORTED_IMAGE_EXTENSIONS.contains(extension)) {
+            return MediaType.IMAGE;
+        }
+        if (SUPPORTED_HEIC_EXTENSIONS.contains(extension)) {
+            return MediaType.HEIC;
+        }
+        if (SUPPORTED_VIDEO_EXTENSIONS.contains(extension)) {
+            return MediaType.VIDEO;
+        }
+        return MediaType.UNSUPPORTED;
     }
 
     private FileCatalogItem markSkipped(FileCatalogItem fileCatalogItem, String reason) {
@@ -139,31 +157,66 @@ public class GeneratedThumbnailService implements ThumbnailService {
                 reason);
     }
 
-    private void createThumbnailFile(Path sourcePath, Path thumbnailPath, int maxWidth, int maxHeight, String outputFormat) throws IOException {
-        BufferedImage sourceImage = ImageIO.read(sourcePath.toFile());
-        if (sourceImage == null) {
-            throw new IOException("File could not be decoded as an image");
-        }
-
-        double scale = Math.min((double) maxWidth / sourceImage.getWidth(), (double) maxHeight / sourceImage.getHeight());
-        scale = Math.min(scale, 1.0d);
-        int targetWidth = Math.max(1, (int) Math.round(sourceImage.getWidth() * scale));
-        int targetHeight = Math.max(1, (int) Math.round(sourceImage.getHeight() * scale));
-
-        Image scaled = sourceImage.getScaledInstance(targetWidth, targetHeight, Image.SCALE_SMOOTH);
-        BufferedImage outputImage = new BufferedImage(targetWidth, targetHeight, BufferedImage.TYPE_INT_RGB);
-        Graphics2D graphics = outputImage.createGraphics();
+    private void createThumbnailFile(
+            Path sourcePath,
+            Path thumbnailPath,
+            ApplicationProperties.ThumbnailsConfig config,
+            MediaType mediaType) throws IOException, InterruptedException {
+        Path ffmpegInputPath = sourcePath;
+        Path heicTempPath = null;
         try {
-            graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
-            graphics.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
-            graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            graphics.drawImage(scaled, 0, 0, null);
-        } finally {
-            graphics.dispose();
-        }
+            if (mediaType == MediaType.HEIC) {
+                heicTempPath = Files.createTempFile(thumbnailPath.getParent(), "heic-source-", ".png");
+                runCommand(List.of(
+                        config.getHeifConvertPath(),
+                        sourcePath.toString(),
+                        heicTempPath.toString()), config);
+                ffmpegInputPath = heicTempPath;
+            }
 
-        if (!ImageIO.write(outputImage, outputFormat, thumbnailPath.toFile())) {
-            throw new IOException("No ImageIO writer found for format " + outputFormat);
+            runCommand(buildFfmpegCommand(ffmpegInputPath, thumbnailPath, config, mediaType == MediaType.VIDEO), config);
+            if (!Files.isRegularFile(thumbnailPath)) {
+                throw new IOException("Thumbnail command completed without creating output file");
+            }
+        } finally {
+            if (heicTempPath != null) {
+                Files.deleteIfExists(heicTempPath);
+            }
+        }
+    }
+
+    private List<String> buildFfmpegCommand(
+            Path sourcePath,
+            Path thumbnailPath,
+            ApplicationProperties.ThumbnailsConfig config,
+            boolean video) {
+        List<String> command = new ArrayList<>();
+        command.add(config.getFfmpegPath());
+        command.add("-y");
+        if (video) {
+            command.add("-ss");
+            command.add(String.valueOf(DEFAULT_VIDEO_CAPTURE_AT_SECONDS));
+        }
+        command.add("-i");
+        command.add(sourcePath.toString());
+        command.add("-frames:v");
+        command.add("1");
+        command.add("-vf");
+        command.add(scaleFilter(config.getMaxWidth(), config.getMaxHeight()));
+        command.add(thumbnailPath.toString());
+        return command;
+    }
+
+    private String scaleFilter(int maxWidth, int maxHeight) {
+        return "scale='min(" + maxWidth + ",iw)':'min(" + maxHeight + ",ih)':force_original_aspect_ratio=decrease";
+    }
+
+    private void runCommand(List<String> command, ApplicationProperties.ThumbnailsConfig config) throws IOException, InterruptedException {
+        ThumbnailProcessRunner.ProcessResult result = thumbnailProcessRunner.run(
+                command,
+                Duration.ofSeconds(config.getCommandTimeoutSeconds()));
+        if (result.exitCode() != 0) {
+            throw new IOException("Thumbnail command failed with exit code " + result.exitCode() + ": " + result.output());
         }
     }
 
@@ -200,5 +253,12 @@ public class GeneratedThumbnailService implements ThumbnailService {
             case "jpg", "jpeg" -> "image/jpeg";
             default -> "image/" + outputFormat.toLowerCase(Locale.ROOT);
         };
+    }
+
+    private enum MediaType {
+        IMAGE,
+        HEIC,
+        VIDEO,
+        UNSUPPORTED
     }
 }
