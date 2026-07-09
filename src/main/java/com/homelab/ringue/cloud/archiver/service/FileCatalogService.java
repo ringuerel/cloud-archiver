@@ -3,30 +3,30 @@ package com.homelab.ringue.cloud.archiver.service;
 import java.util.List;
 import java.util.Optional;
 
-import com.homelab.ringue.cloud.archiver.config.ApplicationProperties.ScanLocationConfig;
 import com.homelab.ringue.cloud.archiver.domain.FileCatalogItem;
-import com.homelab.ringue.cloud.archiver.exception.CloudBackupException;
+import com.homelab.ringue.cloud.archiver.domain.PendingDeletionItem;
 
 public interface FileCatalogService {
-    
-    List<FileCatalogItem> findByFileNameContains(String fileName);
-    List<FileCatalogItem> findByFileNameSimilar(String fileName);
-    List<FileCatalogItem> findByArchiveDateBetweenAndAbsolutePathStartsWith(String startDate, String endDate, Optional<String> path);
 
-    void performLocationSync(ScanLocationConfig scanlocationconfig) throws CloudBackupException;
+    List<FileCatalogItem> findByFileNameContains(String fileName);
+
+    List<FileCatalogItem> findByFileNameSimilar(String fileName);
+
+    List<FileCatalogItem> findByArchiveDateBetweenAndAbsolutePathStartsWith(String startDate, String endDate,
+            Optional<String> path);
 
     /**
-     * Initiates the synchronization process for all configured scan locations,
-     * ensuring only one sync process runs at a time using a lock mechanism.
-     * @return true if the sync process started, false if it was skipped due to an active lock.
+     * Returns catalog items that no longer exist on disk, enriched with days-until-deletion
+     * computed from the owning ScanLocationConfig's delete policy.
      */
-    boolean startAllLocationSyncs();
+    List<PendingDeletionItem> findPendingDeletion(Optional<String> fileNameContains, Optional<String> fileNameExact,
+            Optional<String> path);
 
     /**
      * Downloads a file or folder from the cloud provider to the local downloadRoot.
-     * @param cloudPath The path in the cloud provider (e.g. /, /folder/, /file.jpg)
-     * @return true if download was successful, false otherwise
+     *
+     * @param cloudPath the path in the cloud provider (e.g. /, /folder/, /file.jpg)
+     * @return true if the download was successful, false otherwise
      */
     boolean downloadFromCloud(String cloudPath);
-
 }

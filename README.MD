@@ -1,194 +1,96 @@
 # Cloud Archiver
 
-## Table of Contents
-1. [Introduction](#introduction)
-2. [Features](#features)
-3. [Configuration](#configuration)
-4. [API Endpoints](#api-endpoints)
-5. [Usage Examples](#usage-examples)
-6. [Cloud Provider Setup](#cloud-provider-setup)
-7. [MongoDB Setup](#mongodb-setup)
-8. [Development Workflow](#development-workflow)
-9. [Release Process](#release-process)
-10. [Continuous Integration & Docker](#continuous-integration--docker)
-11. [Docker Compose Example](#docker-compose-example)
-12. [Planned Features](#planned-features)
-13. [Support](#support)
+Cloud Archiver is a self-hosted Spring Boot service for backing up local folders to cloud object storage. It catalogs every file in MongoDB, uses CRC32C checksums to detect content changes, and can optionally delete cloud objects after local files are removed while respecting cold-storage retention windows.
 
----
+It is designed for homelab and personal-media archive workflows where the local disk remains the source of truth and the cloud bucket is the durable backup copy.
 
-## Introduction
+## Current Support
 
-Cloud Archiver is designed to provide a cost-effective, partial self-hosted backup solution by leveraging cloud storage for redundancy and safety. It scans configured folders, uploads new or changed files to the cloud, and manages deletions in alignment with cloud provider lifecycle policies.
+| Area | Support |
+|------|---------|
+| Runtime | Java 17, Spring Boot 3.3.2 |
+| Packaging | Docker image, Maven build |
+| Cloud storage | Google Cloud Storage |
+| Database | MongoDB or MongoDB Atlas |
+| Catalog lookup | REST API and Swagger UI |
+| Metrics | Spring Actuator, Micrometer, Prometheus |
+| Notifications | Discord-compatible webhook |
 
-> *Personal Note*: This project was born out of the need to convince my wife that our photos and videos were safe, even if stored on personal disks. By using a "big" cloud company for backup, I reduced costs from $10/month to ~$0.5/month for the same files.
+Current version: `0.10.0.001-SNAPSHOT`
 
-![Sync workflow example](./docs/Sync%20workflow.png)
-PlantUML Code to the diagram is [here](./docs/sync_workflow.md)
+## Start Here
 
----
+New users should follow the documentation in this order:
 
-## Features
+1. [Getting Started](docs/getting-started.md) - first dry run, then first real GCP backup.
+2. [Docker Compose Deployment](docs/install/docker-compose.md) - production-style container setup.
+3. [GCP Setup](docs/install/gcp.md) - bucket, lifecycle, and service-account guidance.
+4. [MongoDB Atlas Setup](docs/install/mongodb-atlas.md) - database setup and connection string.
+5. [Backup Safety](docs/operations/backup-safety.md) - deletion rules, retention windows, and dry-run caveats.
+6. [Restore Guide](docs/operations/restore-guide.md) - search the catalog and download files from cloud storage.
+7. [Troubleshooting](docs/operations/troubleshooting.md) - common setup and runtime issues.
 
-- Scan and upload files from configured folders to the cloud bucket.
-- Detect and upload modified files.
-- Optional deletion of cloud files when removed locally, respecting configured retention periods.
-- MongoDB Atlas integration for metadata tracking and reporting.
-- Configurable sync schedules using cron expressions.
-- Retrieve archived files by date range and optional path filter.
-- **NEW:** Download files from GCP by specifying a cloud path, restoring to a local folder.
-- **NEW:** Trigger manual sync with concurrency control: only one sync process can run at a time, with a configurable timeout.
+## Quick Start
 
----
+Minimum environment variables for a real GCP-backed run:
 
-## Configuration
+```bash
+APPLICATION_CLOUDPROVIDERCONFIG_TYPE=GCP
+APPLICATION_CLOUDPROVIDERCONFIG_PROJECTID=<gcp-project-id>
+APPLICATION_CLOUDPROVIDERCONFIG_BUCKETNAME=<bucket-name>
+APPLICATION_CLOUDPROVIDERCONFIG_CREDENTIALSFILEPATH=/cloud-provider/key.json
 
-### General
+APPLICATION_SCANFOLDERS_0_SCANFOLDER=/data/photos
 
-Configure the application using `application.yml` or environment variables.
-
-#### Example for Download Root
-
-```yaml
-downloadsRoot: /home/user/downloads
+SPRING_DATA_MONGODB_DATABASE=cloud_archiver
+SPRING_DATA_MONGODB_URI=mongodb+srv://user:pass@host/
 ```
 
-This sets the root directory for restored files.
+For a safe first validation, use `APPLICATION_CLOUDPROVIDERCONFIG_TYPE=NO_PROVIDER` with a temporary MongoDB database. Dry-run mode still writes catalog entries to MongoDB, so do not use the same database for dry-run and real upload unless you intentionally want that catalog state.
 
----
+## Important Safety Defaults
 
-## API Endpoints
+| Setting | Default | Why it matters |
+|---------|---------|----------------|
+| `cleanRemovedFromCloud` | `false` | Local deletions do not delete cloud objects unless explicitly enabled. |
+| `deleteIfEmptyEnabled` | `false` | Cleanup is skipped when a source folder is empty or missing, protecting against unmounted volumes. |
+| `NO_PROVIDER` | opt-in | Walks folders and writes MongoDB catalog data without touching cloud storage. |
+| `standardDeleteDaysLimit` / `archiveDeleteDaysHold` | unset | Lets you align cleanup with GCS lifecycle rules and avoid early-deletion fees. |
 
-API documentation is available via Swagger UI:  
-`http://host:8080/cloud-archiver/swagger-ui/index.html`
+## Documentation Map
 
-### GET /file-catalog
-- **Description:** Search for files by name.
-- **Parameters:** `fileName` (required)
-- **Example:** `GET /file-catalog?fileName=myphoto`
+### User and Operator Docs
 
-### GET /file-catalog/similar
-- **Description:** Find files with similar names.
-- **Parameters:** `fileName` (required)
-- **Example:** `GET /file-catalog/similar?fileName=document`
+| Document | Purpose |
+|----------|---------|
+| [Getting Started](docs/getting-started.md) | First successful dry run and first real backup |
+| [Docker Compose Deployment](docs/install/docker-compose.md) | Container configuration and volume mounts |
+| [GCP Setup](docs/install/gcp.md) | Bucket, lifecycle, IAM, and credentials |
+| [MongoDB Atlas Setup](docs/install/mongodb-atlas.md) | Atlas database setup |
+| [Backup Safety](docs/operations/backup-safety.md) | Source-of-truth model, deletion behavior, retention |
+| [Running Syncs](docs/operations/running-syncs.md) | Scheduled and manual sync behavior |
+| [Restore Guide](docs/operations/restore-guide.md) | Search and download workflows |
+| [Thumbnails](docs/operations/thumbnails.md) | Local thumbnail cache, rebuilds, and video thumbnail plan |
+| [Observability](docs/observability.md) | Metrics, health checks, and logging |
+| [Troubleshooting](docs/operations/troubleshooting.md) | Common symptoms and fixes |
 
-### GET /file-catalog/archived-range
-- **Description:** List files archived within a date range, optionally filtered by path.
-- **Parameters:** `startDate`, `endDate` (required), `path` (optional)
-- **Example:** `GET /file-catalog/archived-range?startDate=2023-01-01&endDate=2023-12-31&path=/photos/vacation`
+### Reference and Developer Docs
 
-### POST /file-catalog/download
-- **Description:** Download a file from the cloud to `downloadsRoot`.
-- **Parameters:** `path` (required)
-- **Example:** `POST /file-catalog/download?path=/home/user/test2/Authelia123.md`
+| Document | Purpose |
+|----------|---------|
+| [Configuration Reference](docs/configuration.md) | Full property and environment-variable list |
+| [API Reference](docs/api-reference.md) | REST endpoints and examples |
+| [Data Model](docs/data-model.md) | MongoDB collections and DTOs |
+| [Architecture](docs/architecture.md) | System overview and package structure |
+| [Sync Workflow](docs/sync-workflow.md) | Backup and cleanup sequence diagrams |
+| [Cloud Provider Abstraction](docs/cloud-provider.md) | Provider strategy and GCP implementation |
+| [Development Guide](docs/development/local-development.md) | Local build, tests, and release notes |
 
-### POST /file-catalog/sync
-- **Description:** Initiates a full synchronization process for all configured scan locations. This endpoint prevents concurrent syncs by using a lock mechanism. If a sync is already running or a lock is stale (configurable via `application.sync-lock-timeout-seconds`), it will return a conflict status.
-- **Responses:**
-    - `200 OK`: Sync process initiated successfully.
-    - `409 Conflict`: Sync process skipped; another sync is already running or the lock is stale.
+## Planned Features
 
----
-
-## Usage Examples
-
-### Download from GCP
-
-Restore files from your GCP bucket by providing the cloud path. Files are placed under `downloadsRoot`, preserving their relative path. Missing folders are created automatically.
-
----
-
-## Cloud Provider Setup
-
-Supported cloud providers:
-- [Google Cloud Platform](./gcp/GCP-README.MD) (GCS Cloud Storage)
-
----
-
-## MongoDB Setup
-
-Create two collections:
-- `file_catalog`: Stores files and metadata.
-- `sync_summary`: Daily summary of uploads/deletes.
-
-### MongoDB Atlas
-
-MongoDB Atlas is a fully-managed cloud database.  
-![Mongo Atlas report example](./mongo-atlas/ReportExample.png)
-
-- [Mongo Atlas Setup](./mongo-atlas/MONGO-ATLAS-README.MD)
-
-*Note*: You can use your own MongoDB instance, but Atlas-specific reports will not be available.
-
----
-
-## Development Workflow
-
-### Adding New Features with Gitflow Maven Plugin
-
-1. Update local repo with `develop`.
-2. Start a feature branch:
-    ```
-    mvn gitflow:feature-start -DfeatureName=your-feature-name
-    ```
-3. Implement and commit changes.
-4. Finish the feature:
-    ```
-    mvn gitflow:feature-finish
-    ```
-5. Push changes:
-    ```
-    git push --all
-    ```
-
----
-
-## Release Process
-
-Uses **gitflow-maven-plugin**:
-
-1. Update local repo with `develop` and `main`.
-2. Start a release:
-    ```
-    mvn gitflow:release-start
-    ```
-3. Update versions and commit.
-4. Finish release:
-    ```
-    mvn gitflow:release-finish
-    ```
-5. Push changes and tags:
-    ```
-    git push --all && git push --tags
-    ```
-
-[Plugin documentation](https://github.com/aleksandr-m/gitflow-maven-plugin)
-
----
-
-## Continuous Integration & Docker
-
-On push to `develop`, GitHub Actions build the project and create a Docker image.
-
----
-
-## Docker Compose Example
-
-Below is a minimal example. For a complete configuration, see [`./docker/cloud-archiver.yml`](./docker/cloud-archiver.yml):
-
-```yaml
-version: '3.8'
-services:
-  cloud-archiver:
-    image: your-cloud-archiver-image
-    environment:
-      DOWNLOADS_ROOT: /home/user/downloads
-      # Add other environment variables as needed
-    volumes:
-      - /path/to/local/folders:/data
-    ports:
-      - "8080:8080"
-    restart: unless-stopped
-```
-
-For a full example with all options, refer to [`./docker/cloud-archiver.yml`](./docker/cloud-archiver.yml).
+- AWS and Azure cloud provider support
+- Data deduplication
+- Encryption before upload
+- Web UI for configuration, monitoring, and file retrieval
+- Resumable uploads for large files
+- Retry and backoff for transient cloud API failures

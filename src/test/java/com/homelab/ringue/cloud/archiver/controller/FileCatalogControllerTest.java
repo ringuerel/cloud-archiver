@@ -1,7 +1,23 @@
 package com.homelab.ringue.cloud.archiver.controller;
 
-import com.homelab.ringue.cloud.archiver.domain.FileCatalogItem;
-import com.homelab.ringue.cloud.archiver.service.FileCatalogService;
+import static org.hamcrest.Matchers.is;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.util.Arrays;
+import java.util.Date;
+import java.util.List;
+import java.util.Optional;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -9,22 +25,9 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
-import java.time.Instant;
-import java.time.LocalDate;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
-import java.util.Arrays;
-import java.util.Date;
-import java.util.List;
-import java.util.Optional;
-
-import static org.hamcrest.Matchers.is;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import com.homelab.ringue.cloud.archiver.domain.FileCatalogItem;
+import com.homelab.ringue.cloud.archiver.service.FileCatalogService;
+import com.homelab.ringue.cloud.archiver.service.SyncFacadeService;
 
 @WebMvcTest(FileCatalogController.class)
 public class FileCatalogControllerTest {
@@ -34,6 +37,9 @@ public class FileCatalogControllerTest {
 
     @MockBean
     private FileCatalogService fileCatalogService;
+
+    @MockBean
+    private SyncFacadeService syncFacadeService;
 
     @Test
     void getByFileName_shouldReturnListOfFileCatalogItems() throws Exception {
@@ -73,8 +79,10 @@ public class FileCatalogControllerTest {
         String endDate = "2023-01-31";
         String path = "/test/path";
 
-        FileCatalogItem item1 = new FileCatalogItem("path/to/archivedfile1.txt", "archivedfile1.txt", "txt", "path/to", false, 100L, Date.from(LocalDate.of(2023, 1, 15).atStartOfDay(ZoneId.systemDefault()).toInstant()), "crc5", Instant.now());
-        FileCatalogItem item2 = new FileCatalogItem("path/to/archivedfile2.txt", "archivedfile2.txt", "txt", "path/to", false, 200L, Date.from(LocalDate.of(2023, 1, 20).atStartOfDay(ZoneId.systemDefault()).toInstant()), "crc6", Instant.now());
+        FileCatalogItem item1 = new FileCatalogItem("path/to/archivedfile1.txt", "archivedfile1.txt", "txt", "path/to", false, 100L,
+                Date.from(LocalDate.of(2023, 1, 15).atStartOfDay(ZoneId.systemDefault()).toInstant()), "crc5", Instant.now());
+        FileCatalogItem item2 = new FileCatalogItem("path/to/archivedfile2.txt", "archivedfile2.txt", "txt", "path/to", false, 200L,
+                Date.from(LocalDate.of(2023, 1, 20).atStartOfDay(ZoneId.systemDefault()).toInstant()), "crc6", Instant.now());
         List<FileCatalogItem> expectedItems = Arrays.asList(item1, item2);
 
         when(fileCatalogService.findByArchiveDateBetweenAndAbsolutePathStartsWith(anyString(), anyString(), any(Optional.class))).thenReturn(expectedItems);
@@ -94,8 +102,10 @@ public class FileCatalogControllerTest {
         String startDate = "2023-01-01";
         String endDate = "2023-01-31";
 
-        FileCatalogItem item1 = new FileCatalogItem("path/to/archivedfile3.txt", "archivedfile3.txt", "txt", "path/to", false, 100L, Date.from(LocalDate.of(2023, 1, 10).atStartOfDay(ZoneId.systemDefault()).toInstant()), "crc7", Instant.now());
-        FileCatalogItem item2 = new FileCatalogItem("path/to/archivedfile4.txt", "archivedfile4.txt", "txt", "path/to", false, 200L, Date.from(LocalDate.of(2023, 1, 25).atStartOfDay(ZoneId.systemDefault()).toInstant()), "crc8", Instant.now());
+        FileCatalogItem item1 = new FileCatalogItem("path/to/archivedfile3.txt", "archivedfile3.txt", "txt", "path/to", false, 100L,
+                Date.from(LocalDate.of(2023, 1, 10).atStartOfDay(ZoneId.systemDefault()).toInstant()), "crc7", Instant.now());
+        FileCatalogItem item2 = new FileCatalogItem("path/to/archivedfile4.txt", "archivedfile4.txt", "txt", "path/to", false, 200L,
+                Date.from(LocalDate.of(2023, 1, 25).atStartOfDay(ZoneId.systemDefault()).toInstant()), "crc8", Instant.now());
         List<FileCatalogItem> expectedItems = Arrays.asList(item1, item2);
 
         when(fileCatalogService.findByArchiveDateBetweenAndAbsolutePathStartsWith(anyString(), anyString(), any(Optional.class))).thenReturn(expectedItems);
@@ -123,5 +133,25 @@ public class FileCatalogControllerTest {
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().string(is("Invalid date format. Please use yyyy-MM-dd.")));
+    }
+
+    @Test
+    void performReconcile_syncStarted_shouldReturnOk() throws Exception {
+        when(syncFacadeService.startAllLocationSyncs()).thenReturn(true);
+
+        mockMvc.perform(post("/file-catalog/sync")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(content().string("Sync process initiated successfully."));
+    }
+
+    @Test
+    void performReconcile_syncAlreadyRunning_shouldReturnConflict() throws Exception {
+        when(syncFacadeService.startAllLocationSyncs()).thenReturn(false);
+
+        mockMvc.perform(post("/file-catalog/sync")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isConflict())
+                .andExpect(content().string("Sync process skipped: another sync is already running."));
     }
 }

@@ -91,6 +91,49 @@ class GCPStorageProviderTest {
     }
 
     @Test
+    void testBuildLocalFilePathForWindowsAbsolutePathObjectName() {
+        String localRoot = "C:/downloads";
+        String cloudName = "C:/Users/Ringuerel/tests/Screenshot 2025-11-14 004915.png";
+        GCPStorageProvider provider = new GCPStorageProvider(applicationProperties);
+
+        java.nio.file.Path expected = java.nio.file.Paths.get(
+                localRoot,
+                "C",
+                "Users",
+                "Ringuerel",
+                "tests",
+                "Screenshot 2025-11-14 004915.png");
+        java.nio.file.Path result = provider.buildLocalFilePath(localRoot, cloudName);
+
+        assertEquals(expected, result);
+    }
+
+    @Test
+    void testBuildLocalFilePathForLinuxAbsolutePathObjectName() {
+        String localRoot = "C:/downloads";
+        String cloudName = "/home/ringuerel/tests/photo.png";
+        GCPStorageProvider provider = new GCPStorageProvider(applicationProperties);
+
+        java.nio.file.Path expected = java.nio.file.Paths.get(
+                localRoot,
+                "home",
+                "ringuerel",
+                "tests",
+                "photo.png");
+        java.nio.file.Path result = provider.buildLocalFilePath(localRoot, cloudName);
+
+        assertEquals(expected, result);
+    }
+
+    @Test
+    void testBuildLocalFilePathRejectsParentTraversal() {
+        GCPStorageProvider provider = new GCPStorageProvider(applicationProperties);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> provider.buildLocalFilePath("C:/downloads", "../outside.txt"));
+    }
+
+    @Test
     void testDownloadFileNotFoundThrows() throws IOException {
         String cloudPath = "immich/library/admin/2008/2008-12-31/NotFound.jpg";
         String localTargetPath = "C:/downloads";

@@ -39,17 +39,65 @@ public class FileCatalogItemMapperImpl implements FileCatalogItemMapper {
 
     @Override
     public FileCatalogItem mapFromFileCatalogItemAddArchiveDate(FileCatalogItem fileCatalogItem) {
-        return new FileCatalogItem(fileCatalogItem.absolutePath(), fileCatalogItem.fileName(), fileCatalogItem.fileExtension(), fileCatalogItem.parentFolder(), fileCatalogItem.isDirectory(), fileCatalogItem.fileSize(), new Date(),fileCatalogItem.crc32c(),fileCatalogItem.lastModified());
+        return copyWith(fileCatalogItem, fileCatalogItem.crc32c(), fileCatalogItem.lastModified(), new Date(),
+                fileCatalogItem.thumbnailPath(), fileCatalogItem.thumbnailProvider(), fileCatalogItem.thumbnailContentType(),
+                fileCatalogItem.thumbnailCreatedAt(), fileCatalogItem.thumbnailStatus(), fileCatalogItem.thumbnailError());
     }
 
     @Override
     public FileCatalogItem mapFromFileCatalogItemUpdateCheckSum(FileCatalogItem fileCatalogItem, String checkSum) {
-        return new FileCatalogItem(fileCatalogItem.absolutePath(), fileCatalogItem.fileName(), fileCatalogItem.fileExtension(), fileCatalogItem.parentFolder(), fileCatalogItem.isDirectory(), fileCatalogItem.fileSize(), fileCatalogItem.archiveDate(),checkSum,fileCatalogItem.lastModified());
+        return copyWith(fileCatalogItem, checkSum, fileCatalogItem.lastModified(), fileCatalogItem.archiveDate(),
+                fileCatalogItem.thumbnailPath(), fileCatalogItem.thumbnailProvider(), fileCatalogItem.thumbnailContentType(),
+                fileCatalogItem.thumbnailCreatedAt(), fileCatalogItem.thumbnailStatus(), fileCatalogItem.thumbnailError());
     }
 
     @Override
     public FileCatalogItem mapFromFileCatalogItemUpdateLastModified(FileCatalogItem fileCatalogItem, Instant lastModified) {
-        return new FileCatalogItem(fileCatalogItem.absolutePath(), fileCatalogItem.fileName(), fileCatalogItem.fileExtension(), fileCatalogItem.parentFolder(), fileCatalogItem.isDirectory(), fileCatalogItem.fileSize(), fileCatalogItem.archiveDate(),fileCatalogItem.crc32c(),lastModified);
+        return copyWith(fileCatalogItem, fileCatalogItem.crc32c(), lastModified, fileCatalogItem.archiveDate(),
+                fileCatalogItem.thumbnailPath(), fileCatalogItem.thumbnailProvider(), fileCatalogItem.thumbnailContentType(),
+                fileCatalogItem.thumbnailCreatedAt(), fileCatalogItem.thumbnailStatus(), fileCatalogItem.thumbnailError());
+    }
+
+    @Override
+    public FileCatalogItem mapFromFileCatalogItemUpdateThumbnail(
+            FileCatalogItem fileCatalogItem,
+            String thumbnailPath,
+            String thumbnailProvider,
+            String thumbnailContentType,
+            Instant thumbnailCreatedAt,
+            String thumbnailStatus,
+            String thumbnailError) {
+        return copyWith(fileCatalogItem, fileCatalogItem.crc32c(), fileCatalogItem.lastModified(), fileCatalogItem.archiveDate(),
+                thumbnailPath, thumbnailProvider, thumbnailContentType, thumbnailCreatedAt, thumbnailStatus, thumbnailError);
+    }
+
+    private FileCatalogItem copyWith(
+            FileCatalogItem fileCatalogItem,
+            String crc32c,
+            Instant lastModified,
+            Date archiveDate,
+            String thumbnailPath,
+            String thumbnailProvider,
+            String thumbnailContentType,
+            Instant thumbnailCreatedAt,
+            String thumbnailStatus,
+            String thumbnailError) {
+        return new FileCatalogItem(
+                fileCatalogItem.absolutePath(),
+                fileCatalogItem.fileName(),
+                fileCatalogItem.fileExtension(),
+                fileCatalogItem.parentFolder(),
+                fileCatalogItem.isDirectory(),
+                fileCatalogItem.fileSize(),
+                archiveDate,
+                crc32c,
+                lastModified,
+                thumbnailPath,
+                thumbnailProvider,
+                thumbnailContentType,
+                thumbnailCreatedAt,
+                thumbnailStatus,
+                thumbnailError);
     }
 
 }

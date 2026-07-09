@@ -21,6 +21,12 @@ public interface FileCatalogItemRepository extends MongoRepository<FileCatalogIt
     Page<FileCatalogItem> findByParentFolderStartsWithAndArchiveDateAfterOrParentFolderStartsWithAndArchiveDateBefore(
             String rootFolder, Date since, String rootFolder2, Date olderThan, Pageable catalogPages);
 
+    // Pending-deletion queries: name filter combined with optional parentFolder prefix
+    Page<FileCatalogItem> findByFileNameContainsIgnoreCaseAndParentFolderStartsWith(String fileName, String parentFolder, Pageable pageable);
+    Page<FileCatalogItem> findByFileNameAndParentFolderStartsWith(String fileName, String parentFolder, Pageable pageable);
+    Page<FileCatalogItem> findByFileNameContainsIgnoreCase(String fileName, Pageable pageable);
+    Page<FileCatalogItem> findByFileName(String fileName, Pageable pageable);
+
     List<FileCatalogItem> findByArchiveDateBetweenAndAbsolutePathStartsWith(Date startDate, Date endDate, String absolutePath);
     List<FileCatalogItem> findByArchiveDateBetween(Date startDate, Date endDate);
 }
