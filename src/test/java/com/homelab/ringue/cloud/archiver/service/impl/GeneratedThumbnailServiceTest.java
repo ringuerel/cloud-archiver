@@ -63,6 +63,8 @@ class GeneratedThumbnailServiceTest {
         assertEquals(1, runner.commands.size());
         assertEquals("ffmpeg", runner.commands.get(0).get(0));
         assertTrue(runner.commands.get(0).contains(item.absolutePath()));
+        assertTrue(runner.commands.get(0).contains("-filter_complex"));
+        assertTrue(runner.commands.get(0).contains("-map"));
     }
 
     @Test
