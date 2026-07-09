@@ -167,11 +167,17 @@ public class GeneratedThumbnailService implements ThumbnailService {
         try {
             if (mediaType == MediaType.HEIC) {
                 heicTempPath = Files.createTempFile(thumbnailPath.getParent(), "heic-source-", ".png");
-                runCommand(List.of(
-                        config.getHeifConvertPath(),
-                        sourcePath.toString(),
-                        heicTempPath.toString()), config);
-                ffmpegInputPath = heicTempPath;
+                try {
+                    runCommand(List.of(
+                            config.getHeifConvertPath(),
+                            sourcePath.toString(),
+                            heicTempPath.toString()), config);
+                    ffmpegInputPath = heicTempPath;
+                } catch (IOException e) {
+                    log.debug("heif-convert failed for {}; falling back to ffmpeg direct decode", sourcePath, e);
+                    Files.deleteIfExists(heicTempPath);
+                    heicTempPath = null;
+                }
             }
 
             runCommand(buildFfmpegCommand(ffmpegInputPath, thumbnailPath, config, mediaType == MediaType.VIDEO), config);

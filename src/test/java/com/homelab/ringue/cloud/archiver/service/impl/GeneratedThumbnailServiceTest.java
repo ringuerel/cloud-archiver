@@ -85,6 +85,25 @@ class GeneratedThumbnailServiceTest {
     }
 
     @Test
+    void createOrUpdateThumbnail_forHeicWhenHeifConvertFails_fallsBackToFfmpegDirectDecode() throws Exception {
+        ApplicationProperties properties = properties(true);
+        FileCatalogItem item = catalogItem(writeSource("photo.heic"), "heic");
+        FakeThumbnailProcessRunner runner = new FakeThumbnailProcessRunner();
+        runner.commandResults.add(new ThumbnailProcessRunner.ProcessResult(1, "Possibly could be a JPEG file instead"));
+        runner.commandResults.add(new ThumbnailProcessRunner.ProcessResult(0, ""));
+        GeneratedThumbnailService service = service(properties, runner);
+
+        FileCatalogItem result = service.createOrUpdateThumbnail(item, false);
+
+        assertEquals(ThumbnailStatus.CREATED.name(), result.thumbnailStatus());
+        assertTrue(Files.isRegularFile(Path.of(result.thumbnailPath())));
+        assertEquals(2, runner.commands.size());
+        assertEquals("heif-convert", runner.commands.get(0).get(0));
+        assertEquals("ffmpeg", runner.commands.get(1).get(0));
+        assertTrue(runner.commands.get(1).contains(item.absolutePath()));
+    }
+
+    @Test
     void createOrUpdateThumbnail_forVideo_invokesFfmpegFrameExtraction() throws Exception {
         ApplicationProperties properties = properties(true);
         FileCatalogItem item = catalogItem(writeSource("clip.mov"), "mov");
@@ -291,6 +310,7 @@ class GeneratedThumbnailServiceTest {
 
     private static class FakeThumbnailProcessRunner implements ThumbnailProcessRunner {
         private final List<List<String>> commands = new ArrayList<>();
+        private final List<ProcessResult> commandResults = new ArrayList<>();
         private ProcessResult result = new ProcessResult(0, "");
         private boolean interrupt;
 
@@ -300,12 +320,13 @@ class GeneratedThumbnailServiceTest {
             if (interrupt) {
                 throw new InterruptedException("interrupted");
             }
-            if (result.exitCode() == 0) {
+            ProcessResult nextResult = commandResults.isEmpty() ? result : commandResults.remove(0);
+            if (nextResult.exitCode() == 0) {
                 Path outputPath = Path.of(command.get(command.size() - 1));
                 Files.createDirectories(outputPath.getParent());
                 Files.writeString(outputPath, "thumbnail");
             }
-            return result;
+            return nextResult;
         }
     }
 }
