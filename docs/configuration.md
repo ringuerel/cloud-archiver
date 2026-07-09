@@ -91,7 +91,7 @@ SCAN_LOCATION — uploaded IMPORTED_COUNT (IMPORTED_SIZE), deleted DELETED_COUNT
 
 ## Thumbnails
 
-Thumbnail generation is optional. When enabled, supported image files get a generated thumbnail after the original file uploads successfully. Thumbnail files are stored on local disk as expendable cache files, and the catalog item stores the local thumbnail path and metadata. See [Thumbnails](operations/thumbnails.md) for rebuild behavior and the video thumbnail plan.
+Thumbnail generation is optional. When enabled, supported images, HEIC/HEIF files, and videos get a generated thumbnail after the original file uploads successfully. Thumbnail files are stored on local disk as expendable cache files, and the catalog item stores the local thumbnail path and metadata. See [Thumbnails](operations/thumbnails.md) for rebuild behavior and supported media.
 
 | Property | Env var | Required | Default | Description |
 |----------|---------|----------|---------|-------------|
@@ -101,6 +101,9 @@ Thumbnail generation is optional. When enabled, supported image files get a gene
 | `application.thumbnails.maxWidth` | `APPLICATION_THUMBNAILSCONFIG_MAXWIDTH` | no | `512` | Maximum generated thumbnail width |
 | `application.thumbnails.maxHeight` | `APPLICATION_THUMBNAILSCONFIG_MAXHEIGHT` | no | `512` | Maximum generated thumbnail height |
 | `application.thumbnails.outputFormat` | `APPLICATION_THUMBNAILSCONFIG_OUTPUTFORMAT` | no | `jpg` | Generated image format |
+| `application.thumbnails.ffmpegPath` | `APPLICATION_THUMBNAILSCONFIG_FFMPEGPATH` | no | `ffmpeg` | External generator used for standard images and videos |
+| `application.thumbnails.heifConvertPath` | `APPLICATION_THUMBNAILSCONFIG_HEIFCONVERTPATH` | no | `heif-convert` | External converter used before generating HEIC/HEIF thumbnails |
+| `application.thumbnails.commandTimeoutSeconds` | `APPLICATION_THUMBNAILSCONFIG_COMMANDTIMEOUTSECONDS` | no | `30` | Timeout for each external thumbnail command |
 | `application.thumbnails.rebuild.pageSize` | `APPLICATION_THUMBNAILSCONFIG_REBUILDCONFIG_PAGESIZE` | no | `500` | MongoDB page size for thumbnail rebuild scans |
 | `application.thumbnails.rebuild.defaultLimit` | `APPLICATION_THUMBNAILSCONFIG_REBUILDCONFIG_DEFAULTLIMIT` | no | `500` | Default maximum entries processed by one rebuild request |
 | `application.thumbnails.rebuild.maxConcurrency` | `APPLICATION_THUMBNAILSCONFIG_REBUILDCONFIG_MAXCONCURRENCY` | no | `2` | Maximum parallel thumbnail workers for rebuild requests, clamped between 1 and 16 |

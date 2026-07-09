@@ -183,7 +183,7 @@ com.homelab.ringue.cloud.archiver
     │   ├── FileCatalogItemMapperImpl.java      Path → domain object mapping
     │   ├── FileCatalogServiceImpl.java         Catalog queries, download, LocationSyncOperations
     │   ├── FolderBackupServiceImpl.java        Scan/import pipeline + thumbnail wiring
-    │   ├── GeneratedThumbnailService.java      Java2D image thumbnail generation
+    │   ├── GeneratedThumbnailService.java      External-tool thumbnail generation
     │   ├── SyncFacadeServiceImpl.java          sync trigger facade
     │   ├── ThumbnailRebuildServiceImpl.java    Paged rebuild orchestration
     │   └── WebhookNotificationService.java     Discord webhook sender
@@ -200,7 +200,7 @@ com.homelab.ringue.cloud.archiver
 | Pattern | Where used | Purpose |
 |---------|-----------|---------|
 | **Strategy** | `CloudProvider` / `GCPStorageProvider` / `NoProvider` | Swap cloud backends without changing business logic |
-| **Strategy** | `ThumbnailService` / `GeneratedThumbnailService` | Swap thumbnail generation strategy; future Immich/video providers slot in here |
+| **Strategy** | `ThumbnailService` / `GeneratedThumbnailService` | Swap thumbnail generation strategy; future Immich providers slot in here |
 | **Factory** | `CloudProviderFactory` | Resolve the correct `CloudProvider` by `CloudProviders` enum at runtime |
 | **Facade** | `SyncFacadeService` / `SyncFacadeServiceImpl` | Thin sync-trigger facade that breaks the orchestrator↔service circular dependency |
 | **Repository** | `FileCatalogItemRepository`, `SyncSummaryRepository` | Decouple data access from service logic |

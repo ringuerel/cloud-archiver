@@ -5,8 +5,8 @@ FROM alpine:latest
 ENV JAVA_HOME=/usr/lib/jvm/default-jvm
 ENV PATH=$PATH:/usr/lib/jvm/default-jvm/bin
 
-# Install OpenJDK 17 and other necessary packages
-RUN apk add --no-cache openjdk17
+# Install OpenJDK 17 and thumbnail media tools
+RUN apk add --no-cache openjdk17 ffmpeg libheif-tools
 
 # Confirm Java installation
 RUN java -version
