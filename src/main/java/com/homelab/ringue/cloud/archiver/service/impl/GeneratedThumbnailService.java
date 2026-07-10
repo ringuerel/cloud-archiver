@@ -33,7 +33,8 @@ import lombok.extern.slf4j.Slf4j;
 public class GeneratedThumbnailService implements ThumbnailService {
 
     private static final String PROVIDER = "GENERATED";
-    private static final int DEFAULT_VIDEO_CAPTURE_AT_SECONDS = 3;
+    private static final double DEFAULT_VIDEO_CAPTURE_AT_SECONDS = 3.0d;
+    private static final double MIN_VIDEO_CAPTURE_AT_SECONDS = 0.1d;
     private static final Set<String> SUPPORTED_IMAGE_EXTENSIONS = Set.of("jpg", "jpeg", "png", "gif", "bmp", "webp");
     private static final Set<String> SUPPORTED_HEIC_EXTENSIONS = Set.of("heic", "heif");
     private static final Set<String> SUPPORTED_VIDEO_EXTENSIONS = Set.of("mp4", "mov", "m4v");
@@ -180,7 +181,7 @@ public class GeneratedThumbnailService implements ThumbnailService {
                 }
             }
 
-            runCommand(buildFfmpegCommand(ffmpegInputPath, thumbnailPath, config, mediaType == MediaType.VIDEO), config);
+            runFfmpegThumbnailCommand(ffmpegInputPath, thumbnailPath, config, mediaType);
             if (!Files.isRegularFile(thumbnailPath)) {
                 throw new IOException("Thumbnail command completed without creating output file");
             }
@@ -195,13 +196,13 @@ public class GeneratedThumbnailService implements ThumbnailService {
             Path sourcePath,
             Path thumbnailPath,
             ApplicationProperties.ThumbnailsConfig config,
-            boolean video) {
+            Optional<Double> captureAtSeconds) {
         List<String> command = new ArrayList<>();
         command.add(config.getFfmpegPath());
         command.add("-y");
-        if (video) {
+        if (captureAtSeconds.isPresent()) {
             command.add("-ss");
-            command.add(String.valueOf(DEFAULT_VIDEO_CAPTURE_AT_SECONDS));
+            command.add(String.format(Locale.ROOT, "%.3f", captureAtSeconds.get()));
         }
         command.add("-i");
         command.add(sourcePath.toString());
@@ -213,6 +214,58 @@ public class GeneratedThumbnailService implements ThumbnailService {
         command.add("[thumb]");
         command.add(thumbnailPath.toString());
         return command;
+    }
+
+    private void runFfmpegThumbnailCommand(
+            Path sourcePath,
+            Path thumbnailPath,
+            ApplicationProperties.ThumbnailsConfig config,
+            MediaType mediaType) throws IOException, InterruptedException {
+        boolean video = mediaType == MediaType.VIDEO;
+        Optional<Double> captureAtSeconds = video ? resolveVideoCaptureAtSeconds(sourcePath, config) : Optional.empty();
+        try {
+            runCommand(buildFfmpegCommand(sourcePath, thumbnailPath, config, captureAtSeconds), config);
+        } catch (IOException e) {
+            if (!video) {
+                throw e;
+            }
+            log.debug("ffmpeg video thumbnail capture failed for {}; falling back to first frame", sourcePath, e);
+            Files.deleteIfExists(thumbnailPath);
+            runCommand(buildFfmpegCommand(sourcePath, thumbnailPath, config, Optional.empty()), config);
+        }
+    }
+
+    private Optional<Double> resolveVideoCaptureAtSeconds(
+            Path sourcePath,
+            ApplicationProperties.ThumbnailsConfig config) throws InterruptedException {
+        try {
+            ThumbnailProcessRunner.ProcessResult result = thumbnailProcessRunner.run(
+                    List.of(
+                            config.getFfprobePath(),
+                            "-v",
+                            "error",
+                            "-show_entries",
+                            "format=duration",
+                            "-of",
+                            "default=noprint_wrappers=1:nokey=1",
+                            sourcePath.toString()),
+                    Duration.ofSeconds(config.getCommandTimeoutSeconds()));
+            if (result.exitCode() != 0) {
+                log.debug("ffprobe failed for {}; using first frame fallback: {}", sourcePath, result.output());
+                return Optional.empty();
+            }
+
+            double durationSeconds = Double.parseDouble(result.output().strip());
+            if (!Double.isFinite(durationSeconds) || durationSeconds <= 0.0d) {
+                return Optional.empty();
+            }
+
+            double captureAtSeconds = Math.min(DEFAULT_VIDEO_CAPTURE_AT_SECONDS, durationSeconds / 2.0d);
+            return Optional.of(Math.max(MIN_VIDEO_CAPTURE_AT_SECONDS, captureAtSeconds));
+        } catch (NumberFormatException | IOException e) {
+            log.debug("Unable to determine video duration for {}; using first frame fallback", sourcePath, e);
+            return Optional.empty();
+        }
     }
 
     private String scaleFilter(int maxWidth, int maxHeight) {

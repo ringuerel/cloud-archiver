@@ -108,16 +108,76 @@ class GeneratedThumbnailServiceTest {
         ApplicationProperties properties = properties(true);
         FileCatalogItem item = catalogItem(writeSource("clip.mov"), "mov");
         FakeThumbnailProcessRunner runner = new FakeThumbnailProcessRunner();
+        runner.commandResults.add(new ThumbnailProcessRunner.ProcessResult(0, "12.000000"));
+        runner.commandResults.add(new ThumbnailProcessRunner.ProcessResult(0, ""));
         GeneratedThumbnailService service = service(properties, runner);
 
         FileCatalogItem result = service.createOrUpdateThumbnail(item, false);
 
         assertEquals(ThumbnailStatus.CREATED.name(), result.thumbnailStatus());
-        List<String> command = runner.commands.get(0);
+        assertEquals(2, runner.commands.size());
+        assertEquals("ffprobe", runner.commands.get(0).get(0));
+        List<String> command = runner.commands.get(1);
         assertEquals("ffmpeg", command.get(0));
         assertTrue(command.contains("-ss"));
-        assertTrue(command.contains("3"));
+        assertTrue(command.contains("3.000"));
         assertTrue(command.contains(item.absolutePath()));
+    }
+
+    @Test
+    void createOrUpdateThumbnail_forShortVideo_usesTimestampWithinDuration() throws Exception {
+        ApplicationProperties properties = properties(true);
+        FileCatalogItem item = catalogItem(writeSource("short.mp4"), "mp4");
+        FakeThumbnailProcessRunner runner = new FakeThumbnailProcessRunner();
+        runner.commandResults.add(new ThumbnailProcessRunner.ProcessResult(0, "2.970000"));
+        runner.commandResults.add(new ThumbnailProcessRunner.ProcessResult(0, ""));
+        GeneratedThumbnailService service = service(properties, runner);
+
+        FileCatalogItem result = service.createOrUpdateThumbnail(item, false);
+
+        assertEquals(ThumbnailStatus.CREATED.name(), result.thumbnailStatus());
+        assertTrue(Files.isRegularFile(Path.of(result.thumbnailPath())));
+        assertEquals(2, runner.commands.size());
+        assertEquals("ffprobe", runner.commands.get(0).get(0));
+        assertTrue(runner.commands.get(1).contains("-ss"));
+        assertTrue(runner.commands.get(1).contains("1.485"));
+        assertTrue(runner.commands.get(1).contains(item.absolutePath()));
+    }
+
+    @Test
+    void createOrUpdateThumbnail_forVideoWhenDurationProbeFails_fallsBackToFirstFrame() throws Exception {
+        ApplicationProperties properties = properties(true);
+        FileCatalogItem item = catalogItem(writeSource("probe-fails.mp4"), "mp4");
+        FakeThumbnailProcessRunner runner = new FakeThumbnailProcessRunner();
+        runner.commandResults.add(new ThumbnailProcessRunner.ProcessResult(1, "probe failed"));
+        runner.commandResults.add(new ThumbnailProcessRunner.ProcessResult(0, ""));
+        GeneratedThumbnailService service = service(properties, runner);
+
+        FileCatalogItem result = service.createOrUpdateThumbnail(item, false);
+
+        assertEquals(ThumbnailStatus.CREATED.name(), result.thumbnailStatus());
+        assertEquals(2, runner.commands.size());
+        assertEquals("ffprobe", runner.commands.get(0).get(0));
+        assertEquals("ffmpeg", runner.commands.get(1).get(0));
+        assertFalse(runner.commands.get(1).contains("-ss"));
+    }
+
+    @Test
+    void createOrUpdateThumbnail_forVideoWhenCaptureFails_retriesFirstFrame() throws Exception {
+        ApplicationProperties properties = properties(true);
+        FileCatalogItem item = catalogItem(writeSource("capture-fails.mp4"), "mp4");
+        FakeThumbnailProcessRunner runner = new FakeThumbnailProcessRunner();
+        runner.commandResults.add(new ThumbnailProcessRunner.ProcessResult(0, "12.000000"));
+        runner.commandResults.add(new ThumbnailProcessRunner.ProcessResult(234, "Nothing was written into output file"));
+        runner.commandResults.add(new ThumbnailProcessRunner.ProcessResult(0, ""));
+        GeneratedThumbnailService service = service(properties, runner);
+
+        FileCatalogItem result = service.createOrUpdateThumbnail(item, false);
+
+        assertEquals(ThumbnailStatus.CREATED.name(), result.thumbnailStatus());
+        assertEquals(3, runner.commands.size());
+        assertTrue(runner.commands.get(1).contains("-ss"));
+        assertFalse(runner.commands.get(2).contains("-ss"));
     }
 
     @Test

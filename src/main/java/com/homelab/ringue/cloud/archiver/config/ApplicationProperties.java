@@ -85,6 +85,7 @@ public class ApplicationProperties {
         private Integer maxHeight;
         private String outputFormat;
         private String ffmpegPath;
+        private String ffprobePath;
         private String heifConvertPath;
         private Integer commandTimeoutSeconds;
         private RebuildConfig rebuild;
@@ -111,6 +112,10 @@ public class ApplicationProperties {
 
         public String getFfmpegPath() {
             return Optional.ofNullable(ffmpegPath).orElse("ffmpeg");
+        }
+
+        public String getFfprobePath() {
+            return Optional.ofNullable(ffprobePath).orElse("ffprobe");
         }
 
         public String getHeifConvertPath() {

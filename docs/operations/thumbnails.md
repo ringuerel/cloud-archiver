@@ -62,6 +62,7 @@ application:
     maxHeight: 512
     outputFormat: jpg
     ffmpegPath: ffmpeg
+    ffprobePath: ffprobe
     heifConvertPath: heif-convert
     commandTimeoutSeconds: 30
 ```
@@ -112,9 +113,9 @@ Deleting a local thumbnail file manually is safe. The catalog can rebuild it lat
 
 ## External Tools
 
-The published Docker image installs `ffmpeg` and `libheif-tools`. If you run the application outside that image, make sure `ffmpeg` and `heif-convert` are available on `PATH`, or configure `ffmpegPath` and `heifConvertPath`.
+The published Docker image installs `ffmpeg` and `libheif-tools`. If you run the application outside that image, make sure `ffmpeg`, `ffprobe`, and `heif-convert` are available on `PATH`, or configure `ffmpegPath`, `ffprobePath`, and `heifConvertPath`.
 
-Standard images are decoded and scaled by `ffmpeg`. HEIC/HEIF files are first converted to a temporary image with `heif-convert`, then scaled into the configured thumbnail format. Videos use `ffmpeg` to capture a frame near the start of the file.
+Standard images are decoded and scaled by `ffmpeg`. HEIC/HEIF files are first converted to a temporary image with `heif-convert`, then scaled into the configured thumbnail format. Videos use `ffprobe` to pick a timestamp within the video duration, then use `ffmpeg` to capture that frame.
 
 External tool failures are non-blocking: the original backup still succeeds, while the catalog item records `thumbnailStatus=FAILED` and the command output in `thumbnailError`.
 

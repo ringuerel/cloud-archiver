@@ -102,6 +102,7 @@ Thumbnail generation is optional. When enabled, supported images, HEIC/HEIF file
 | `application.thumbnails.maxHeight` | `APPLICATION_THUMBNAILSCONFIG_MAXHEIGHT` | no | `512` | Maximum generated thumbnail height |
 | `application.thumbnails.outputFormat` | `APPLICATION_THUMBNAILSCONFIG_OUTPUTFORMAT` | no | `jpg` | Generated image format |
 | `application.thumbnails.ffmpegPath` | `APPLICATION_THUMBNAILSCONFIG_FFMPEGPATH` | no | `ffmpeg` | External generator used for standard images and videos |
+| `application.thumbnails.ffprobePath` | `APPLICATION_THUMBNAILSCONFIG_FFPROBEPATH` | no | `ffprobe` | External probe used to pick an in-duration video thumbnail timestamp |
 | `application.thumbnails.heifConvertPath` | `APPLICATION_THUMBNAILSCONFIG_HEIFCONVERTPATH` | no | `heif-convert` | External converter used before generating HEIC/HEIF thumbnails |
 | `application.thumbnails.commandTimeoutSeconds` | `APPLICATION_THUMBNAILSCONFIG_COMMANDTIMEOUTSECONDS` | no | `30` | Timeout for each external thumbnail command |
 | `application.thumbnails.rebuild.pageSize` | `APPLICATION_THUMBNAILSCONFIG_REBUILDCONFIG_PAGESIZE` | no | `500` | MongoDB page size for thumbnail rebuild scans |
