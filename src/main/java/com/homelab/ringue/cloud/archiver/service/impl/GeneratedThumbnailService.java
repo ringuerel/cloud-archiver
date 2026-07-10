@@ -22,6 +22,7 @@ import com.homelab.ringue.cloud.archiver.config.ApplicationProperties;
 import com.homelab.ringue.cloud.archiver.config.ApplicationProperties.ScanLocationConfig;
 import com.homelab.ringue.cloud.archiver.domain.FileCatalogItem;
 import com.homelab.ringue.cloud.archiver.domain.ThumbnailStatus;
+import com.homelab.ringue.cloud.archiver.service.CloudSyncMetricsService;
 import com.homelab.ringue.cloud.archiver.service.FileCatalogItemMapper;
 import com.homelab.ringue.cloud.archiver.service.ThumbnailProcessRunner;
 import com.homelab.ringue.cloud.archiver.service.ThumbnailService;
@@ -42,14 +43,17 @@ public class GeneratedThumbnailService implements ThumbnailService {
     private final ApplicationProperties applicationProperties;
     private final FileCatalogItemMapper fileCatalogItemMapper;
     private final ThumbnailProcessRunner thumbnailProcessRunner;
+    private final CloudSyncMetricsService cloudSyncMetricsService;
 
     public GeneratedThumbnailService(
             ApplicationProperties applicationProperties,
             FileCatalogItemMapper fileCatalogItemMapper,
-            ThumbnailProcessRunner thumbnailProcessRunner) {
+            ThumbnailProcessRunner thumbnailProcessRunner,
+            CloudSyncMetricsService cloudSyncMetricsService) {
         this.applicationProperties = applicationProperties;
         this.fileCatalogItemMapper = fileCatalogItemMapper;
         this.thumbnailProcessRunner = thumbnailProcessRunner;
+        this.cloudSyncMetricsService = cloudSyncMetricsService;
     }
 
     @Override
@@ -63,20 +67,24 @@ public class GeneratedThumbnailService implements ThumbnailService {
         }
         MediaType mediaType = mediaType(fileCatalogItem);
         if (mediaType == MediaType.UNSUPPORTED) {
+            cloudSyncMetricsService.recordThumbnailSkipped(mediaType.metricTag());
             return markSkipped(fileCatalogItem, "Unsupported media type for generated thumbnails");
         }
 
         Path sourcePath = Paths.get(fileCatalogItem.absolutePath());
         if (!Files.isRegularFile(sourcePath)) {
+            cloudSyncMetricsService.recordThumbnailFailed(mediaType.metricTag(), Duration.ZERO);
             return markFailed(fileCatalogItem, "Source file is not available on disk");
         }
 
+        long startTime = System.nanoTime();
         try {
             Path thumbnailPath = buildThumbnailPath(fileCatalogItem, config);
-            long startTime = System.nanoTime();
             Files.createDirectories(thumbnailPath.getParent());
             createThumbnailFile(sourcePath, thumbnailPath, config, mediaType);
-            long durationMs = (System.nanoTime() - startTime) / 1_000_000;
+            Duration duration = elapsedSince(startTime);
+            cloudSyncMetricsService.recordThumbnailCreated(mediaType.metricTag(), duration);
+            long durationMs = duration.toMillis();
             long thumbnailSize = Files.size(thumbnailPath);
             log.info("[THUMBNAIL] Created {} ({} bytes) for {} in {} ms",
                     thumbnailPath, thumbnailSize, fileCatalogItem.absolutePath(), durationMs);
@@ -91,9 +99,11 @@ public class GeneratedThumbnailService implements ThumbnailService {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             log.warn("Interrupted creating thumbnail for {}", fileCatalogItem.absolutePath(), e);
+            cloudSyncMetricsService.recordThumbnailFailed(mediaType.metricTag(), elapsedSince(startTime));
             return markFailed(fileCatalogItem, "Thumbnail generation was interrupted");
         } catch (Exception e) {
             log.warn("Failed creating thumbnail for {}", fileCatalogItem.absolutePath(), e);
+            cloudSyncMetricsService.recordThumbnailFailed(mediaType.metricTag(), elapsedSince(startTime));
             return markFailed(fileCatalogItem, e.getMessage());
         }
     }
@@ -316,10 +326,24 @@ public class GeneratedThumbnailService implements ThumbnailService {
         };
     }
 
+    private Duration elapsedSince(long startTime) {
+        return Duration.ofNanos(System.nanoTime() - startTime);
+    }
+
     private enum MediaType {
-        IMAGE,
-        HEIC,
-        VIDEO,
-        UNSUPPORTED
+        IMAGE("image"),
+        HEIC("heic"),
+        VIDEO("video"),
+        UNSUPPORTED("unsupported");
+
+        private final String metricTag;
+
+        MediaType(String metricTag) {
+            this.metricTag = metricTag;
+        }
+
+        private String metricTag() {
+            return metricTag;
+        }
     }
 }

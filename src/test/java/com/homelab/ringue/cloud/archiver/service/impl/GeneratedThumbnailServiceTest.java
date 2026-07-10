@@ -24,6 +24,8 @@ import com.homelab.ringue.cloud.archiver.config.ApplicationProperties.ScanLocati
 import com.homelab.ringue.cloud.archiver.config.ApplicationProperties.ThumbnailsConfig;
 import com.homelab.ringue.cloud.archiver.domain.FileCatalogItem;
 import com.homelab.ringue.cloud.archiver.domain.ThumbnailStatus;
+import com.homelab.ringue.cloud.archiver.service.CloudSyncMetrics;
+import com.homelab.ringue.cloud.archiver.service.CloudSyncMetricsService;
 import com.homelab.ringue.cloud.archiver.service.ThumbnailProcessRunner;
 
 class GeneratedThumbnailServiceTest {
@@ -313,7 +315,8 @@ class GeneratedThumbnailServiceTest {
         return new GeneratedThumbnailService(
                 properties,
                 new FileCatalogItemMapperImpl(),
-                runner);
+                runner,
+                new RecordingCloudSyncMetricsService());
     }
 
     private ApplicationProperties properties(boolean thumbnailsEnabled) {
@@ -387,6 +390,26 @@ class GeneratedThumbnailServiceTest {
                 Files.writeString(outputPath, "thumbnail");
             }
             return nextResult;
+        }
+    }
+
+    private static class RecordingCloudSyncMetricsService implements CloudSyncMetricsService {
+
+        @Override
+        public CloudSyncMetrics current() {
+            return null;
+        }
+
+        @Override
+        public void recordThumbnailCreated(String mediaType, Duration duration) {
+        }
+
+        @Override
+        public void recordThumbnailFailed(String mediaType, Duration duration) {
+        }
+
+        @Override
+        public void recordThumbnailSkipped(String mediaType) {
         }
     }
 }
