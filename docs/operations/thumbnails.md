@@ -6,7 +6,11 @@ This is meant for restore discovery: if a media file was deleted locally but sti
 
 ## Current Behavior
 
+<<<<<<< HEAD
 When thumbnails are enabled, Cloud Archiver creates generated thumbnails for supported media files after the original file uploads successfully. Generation is coordinated by Java but performed by external tools packaged in the Docker image: `ffmpeg` for standard images and videos, and `heif-convert` for HEIC/HEIF input.
+=======
+When thumbnails are enabled, Cloud Archiver creates generated thumbnails for supported image files after the original file uploads successfully.
+>>>>>>> main
 
 Supported generated image extensions:
 
@@ -15,6 +19,7 @@ Supported generated image extensions:
 - `png`
 - `gif`
 - `bmp`
+<<<<<<< HEAD
 - `webp`
 
 Supported HEIC/HEIF extensions:
@@ -27,6 +32,8 @@ Supported video extensions:
 - `mp4`
 - `mov`
 - `m4v`
+=======
+>>>>>>> main
 
 The service stores:
 
