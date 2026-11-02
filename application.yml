@@ -16,6 +16,10 @@ application:
     maxWidth: 512
     maxHeight: 512
     outputFormat: jpg
+    ffmpegPath: ffmpeg # External generator used for standard images and videos
+    ffprobePath: ffprobe # External probe used to pick an in-duration video thumbnail timestamp
+    heifConvertPath: heif-convert # External converter used before generating HEIC/HEIF thumbnails
+    commandTimeoutSeconds: 30
     rebuildConfig:
       pageSize: 500
       defaultLimit: 500

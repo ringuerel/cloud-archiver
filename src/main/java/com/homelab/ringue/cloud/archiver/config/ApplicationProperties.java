@@ -84,6 +84,10 @@ public class ApplicationProperties {
         private Integer maxWidth;
         private Integer maxHeight;
         private String outputFormat;
+        private String ffmpegPath;
+        private String ffprobePath;
+        private String heifConvertPath;
+        private Integer commandTimeoutSeconds;
         private RebuildConfig rebuild;
 
         public String getMode() {
@@ -104,6 +108,22 @@ public class ApplicationProperties {
 
         public String getOutputFormat() {
             return Optional.ofNullable(outputFormat).orElse("jpg");
+        }
+
+        public String getFfmpegPath() {
+            return Optional.ofNullable(ffmpegPath).orElse("ffmpeg");
+        }
+
+        public String getFfprobePath() {
+            return Optional.ofNullable(ffprobePath).orElse("ffprobe");
+        }
+
+        public String getHeifConvertPath() {
+            return Optional.ofNullable(heifConvertPath).orElse("heif-convert");
+        }
+
+        public int getCommandTimeoutSeconds() {
+            return Optional.ofNullable(commandTimeoutSeconds).orElse(30);
         }
 
         public RebuildConfig getRebuild() {

@@ -6,7 +6,11 @@ This is meant for restore discovery: if a media file was deleted locally but sti
 
 ## Current Behavior
 
+<<<<<<< HEAD
+When thumbnails are enabled, Cloud Archiver creates generated thumbnails for supported media files after the original file uploads successfully. Generation is coordinated by Java but performed by external tools packaged in the Docker image: `ffmpeg` for standard images and videos, and `heif-convert` for HEIC/HEIF input.
+=======
 When thumbnails are enabled, Cloud Archiver creates generated thumbnails for supported image files after the original file uploads successfully.
+>>>>>>> main
 
 Supported generated image extensions:
 
@@ -15,6 +19,21 @@ Supported generated image extensions:
 - `png`
 - `gif`
 - `bmp`
+<<<<<<< HEAD
+- `webp`
+
+Supported HEIC/HEIF extensions:
+
+- `heic`
+- `heif`
+
+Supported video extensions:
+
+- `mp4`
+- `mov`
+- `m4v`
+=======
+>>>>>>> main
 
 The service stores:
 
@@ -49,6 +68,10 @@ application:
     maxWidth: 512
     maxHeight: 512
     outputFormat: jpg
+    ffmpegPath: ffmpeg
+    ffprobePath: ffprobe
+    heifConvertPath: heif-convert
+    commandTimeoutSeconds: 30
 ```
 
 Each managed scan location can override the root:
@@ -95,32 +118,12 @@ When Cloud Archiver eventually deletes the archived cloud object and removes the
 
 Deleting a local thumbnail file manually is safe. The catalog can rebuild it later if the original source file is still available.
 
-## Video Thumbnail Plan
+## External Tools
 
-Video thumbnails should be added as a second generated provider capability, not mixed into the current image decoder path.
+The published Docker image installs `ffmpeg` and `libheif-tools`. If you run the application outside that image, make sure `ffmpeg`, `ffprobe`, and `heif-convert` are available on `PATH`, or configure `ffmpegPath`, `ffprobePath`, and `heifConvertPath`.
 
-Recommended implementation:
+Standard images are decoded and scaled by `ffmpeg`. HEIC/HEIF files are first converted to a temporary image with `heif-convert`, then scaled into the configured thumbnail format. Videos use `ffprobe` to pick a timestamp within the video duration, then use `ffmpeg` to capture that frame.
 
-1. Add video extensions to media detection:
-   `mp4`, `mov`, `m4v`, `avi`, `mkv`, `webm`.
-2. Add thumbnail config for video extraction:
-   ```yaml
-   application:
-     thumbnails:
-       video:
-         enabled: false
-         ffmpegPath: ffmpeg
-         captureAtSeconds: 3
-         timeoutSeconds: 30
-   ```
-3. Use `ffmpeg` to extract one frame into a temporary image:
-   ```bash
-   ffmpeg -y -ss 3 -i input.mp4 -frames:v 1 -vf scale=512:-1 output.jpg
-   ```
-4. Reuse the same local thumbnail path strategy and Mongo metadata fields.
-5. Mark failures as `thumbnailStatus=FAILED` with the ffmpeg error message.
-6. Keep video thumbnail failure non-blocking: original backup success must not depend on thumbnail generation.
-7. Update the Docker image to include ffmpeg only if video thumbnails are enabled by default, or document that users need a custom image/runtime if it remains optional.
-8. Add tests around command construction, timeout handling, unsupported files, and successful metadata update.
+External tool failures are non-blocking: the original backup still succeeds, while the catalog item records `thumbnailStatus=FAILED` and the command output in `thumbnailError`.
 
 Immich thumbnail support can use the same catalog fields later, with `thumbnailProvider=IMMICH`.

@@ -19,6 +19,10 @@ Sync metrics are reset at the start of each full sync run, but metric ownership 
 | `cloud_archiver_gcp_downloads_total` | Counter | Cloud-to-local download operations |
 | `cloud_archiver_gcp_upload_bytes` | DistributionSummary | Bytes uploaded per file |
 | `cloud_archiver_gcp_download_bytes` | DistributionSummary | Bytes downloaded per file |
+| `cloud_archiver_thumbnails_created_total` | Counter | Thumbnails successfully created, tagged by `media_type` |
+| `cloud_archiver_thumbnails_failed_total` | Counter | Thumbnail generation failures, tagged by `media_type` |
+| `cloud_archiver_thumbnails_skipped_total` | Counter | Thumbnail generation skips, tagged by `media_type` |
+| `cloud_archiver_thumbnail_generation_duration_seconds` | Timer | Thumbnail generation attempt duration, tagged by `media_type` and `status` |
 | `cloud_archiver_backup_task_runs_total` | Counter | Times the scheduled task has fired |
 
 ---
@@ -30,11 +34,13 @@ flowchart LR
     subgraph App["Cloud Archiver"]
         TT["TimedTask"]
         FCS["FileCatalogServiceImpl"]
+        THUMBS["GeneratedThumbnailService"]
         METRICS["CloudSyncMetricsService"]
         REG["MeterRegistry\n(Micrometer)"]
         TT -->|"increment scheduled-task counter"| REG
         FCS -->|"reset per-run metrics"| METRICS
         FCS -->|"record upload/delete/download timing and counts"| METRICS
+        THUMBS -->|"record thumbnail counts and generation duration"| METRICS
         METRICS -->|"register/remove meters"| REG
     end
 
